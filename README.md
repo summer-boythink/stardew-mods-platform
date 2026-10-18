@@ -40,7 +40,7 @@ stardew-mods-platform/
     │   ├── context/AuthContext.tsx
     │   ├── components/     # island（可爱UI封装）/ Layout / ModCard / QuotaBar / UploadDropzone
     │   └── pages/          # Home（广场）/ Upload / MyMods / Team / ModDetail / Auth
-    └── vite.config.ts      # /api 与 /files 代理到后端 :4000
+    └── vite.config.ts      # /api 代理到后端 :4000
 ```
 
 ---

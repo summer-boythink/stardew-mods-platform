@@ -57,8 +57,8 @@ export function Layout({ children }: { children: React.ReactNode }): JSX.Element
                 </IButton>
               </>
             ) : (
-              <Link to="/auth" onClick={close} className="nav-cta-link">
-                <IButton islandType="primary">登录 / 注册</IButton>
+              <Link to="/auth" onClick={close} className="btn btn-primary nav-cta-link">
+                登录 / 注册
               </Link>
             )}
           </nav>

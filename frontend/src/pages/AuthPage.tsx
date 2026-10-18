@@ -178,7 +178,7 @@ export function AuthPage(): JSX.Element {
             </span>
           </label>
           {error && <div className="state-error">{error}</div>}
-          <IButton islandType="primary" loading={busy}>
+          <IButton islandType="primary" loading={busy} htmlType="submit">
             {mode === 'login' ? '登录' : '注册并登录'}
           </IButton>
           <p className="muted">🌸 为保护账号安全：登录每 1 小时内失败超过 5 次将被暂时锁定（按 IP 与账号双重计数）。</p>

@@ -60,7 +60,6 @@ export function UploadPage(): JSX.Element {
       setError('团队存储需要先选择一个团队');
       return;
     }
-    if (scope === 'public' && teamId === '' && false) return;
     setUploading(true);
     setProgress(0);
     try {

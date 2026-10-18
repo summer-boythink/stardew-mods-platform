@@ -72,8 +72,7 @@ export function ModDetailPage(): JSX.Element {
   }
   if (!mod) return <div className="page"><div className="state-hint">Mod 不存在</div></div>;
 
-  const canEdit = !!user && (user.id === mod.ownerId || (mod.teamId && mod.teamName && user.username !== '' && false)) ;
-  // 团队创建者也可编辑：后端会二次校验，这里放宽为上传者或登录用户（保存失败后端会提示无权限）
+  // 上传者可编辑；团队创建者的编辑入口简化归到后端二次校验（403 时前端提示）
   const showEdit = !!user && user.id === mod.ownerId;
 
   const save = async (): Promise<void> => {
@@ -178,7 +177,6 @@ export function ModDetailPage(): JSX.Element {
         <h3>🗂 文件结构</h3>
         {mod.fileTree.length === 0 ? <p className="muted">无文件树信息</p> : <Tree nodes={mod.fileTree} />}
       </ICard>
-      {void canEdit}
     </div>
   );
 }

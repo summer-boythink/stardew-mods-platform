@@ -55,11 +55,11 @@ export function HomePage(): JSX.Element {
               个人小抽屉、团队共享手帖、完全公开的花展，电脑手机都能逛。
             </p>
             <div className="hero-actions">
-              <Link to="/upload">
-                <IButton islandType="primary">＋ 上传我的 Mod</IButton>
+              <Link to="/upload" className="btn btn-primary">
+                ＋ 上传我的 Mod
               </Link>
-              <Link to="/teams">
-                <IButton>👥 创建团队空间</IButton>
+              <Link to="/teams" className="btn">
+                👥 创建团队空间
               </Link>
             </div>
           </div>
@@ -86,7 +86,7 @@ export function HomePage(): JSX.Element {
           onChange={(e) => setQInput(e.target.value)}
           enterKeyHint="search"
         />
-        <IButton islandType="primary">搜索</IButton>
+        <IButton islandType="primary" htmlType="submit">搜索</IButton>
       </form>
 
       <div className="filter-row">

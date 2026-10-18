@@ -80,9 +80,9 @@ export function MyModsPage(): JSX.Element {
         }}
       >
         <input className="input" placeholder="搜索我的 Mod…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <IButton islandType="primary">搜索</IButton>
-        <Link to="/upload">
-          <IButton>＋ 去上传</IButton>
+        <IButton islandType="primary" htmlType="submit">搜索</IButton>
+        <Link to="/upload" className="btn">
+          ＋ 去上传
         </Link>
       </form>
       {loading && <div className="state-hint">加载中…</div>}

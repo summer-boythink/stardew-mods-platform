@@ -17,6 +17,8 @@
     "build:backend": "bun run --filter backend build",
     "build:frontend": "bun run --filter frontend build",
     "test:backend": "bun run --filter backend test",
+    "test:frontend": "bun run --filter frontend test",
+    "test": "bun run --filter backend test && bun run --filter frontend test",
     "typecheck": "bun run --filter @stardew/shared typecheck && bun run --filter backend typecheck && bun run --filter frontend typecheck"
   }
 }
