@@ -49,6 +49,12 @@ export const uploadFieldsSchema = z.object({
   description: z.string().trim().max(2000).optional().default(''),
   category: z.enum([...MOD_CATEGORIES] as [string, ...string[]]).optional(),
   tags: z.string().trim().max(500).optional().default(''),
+  /** '1' 时：压缩包/文件夹含多个 Mod 则拆分为多个独立记录（否则合并为合集包） */
+  split: z.enum(['0', '1']).optional().default('0'),
+  /** '1' 时：遇到重复 Mod 直接覆盖（无需 overwriteIds） */
+  overwrite: z.enum(['0', '1']).optional().default('0'),
+  /** JSON 数组：仅覆盖这些已存在记录 id（前端确认弹窗后回传） */
+  overwriteIds: z.string().max(20000).optional().default(''),
 });
 
 export const updateModSchema = z.object({

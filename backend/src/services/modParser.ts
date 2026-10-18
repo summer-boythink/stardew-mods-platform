@@ -28,6 +28,8 @@ export interface AnalyzeResult {
   previewImages: string[];
   /** 所有相对路径（小写拼接前） */
   allRelPaths: string[];
+  /** 所有文件条目（rel + size），拆分模式据此构建每个子 Mod 的文件树与文件数 */
+  entries: Array<{ rel: string; size: number }>;
   /** 解压/还原后的根目录（调用方负责清理） */
   workDir: string;
   /** 是否来自 zip */
@@ -280,6 +282,7 @@ export function analyzeDirectory(workDir: string): Omit<AnalyzeResult, 'workDir'
     totalBytes,
     previewImages,
     allRelPaths,
+    entries: entries.map((e) => ({ rel: e.rel, size: e.size })),
     suggestedTitle,
     suggestedDescription,
     suggestedCategory,
@@ -341,17 +344,18 @@ function isZipName(name: string): boolean {
 }
 
 /**
- * 统一分析上传内容，支持三种形态：
+ * 统一分析上传内容，支持四种形态：
  * 1. 单个 zip → 解压后分析
- * 2. 单个非 zip 文件（单个 mod：dll/zip 外的 json/png/xnb 等）
- * 3. 文件夹上传（多个文件 + 相对路径）→ 按相对路径还原后分析
- * 返回的 workDir 由调用方清理（成功后 переносится 或删除）。
+ * 2. 多个 zip（一次选择多个压缩包）→ 逐个解压到独立子目录后合并分析
+ * 3. 单个非 zip 文件（单个 mod：dll/zip 外的 json/png/xnb 等）
+ * 4. 文件夹上传（多个文件 + 相对路径）→ 按相对路径还原后分析
+ * 返回的 workDir 由调用方清理。
  */
 export function analyzeStagedUpload(staged: StagedFile[], workRoot: string): AnalyzeResult {
   if (staged.length === 0) throw new Error('没有可分析的文件');
   fs.mkdirSync(workRoot, { recursive: true });
 
-  // 情况 1：单个 zip
+  // 情况 1：单个 zip（保持原有结构：直接解压到 extracted/，文件树不带额外前缀）
   if (staged.length === 1 && isZipName(staged[0].relativePath)) {
     const dest = path.join(workRoot, 'extracted');
     extractZipSafely(staged[0].absPath, dest);
@@ -359,7 +363,23 @@ export function analyzeStagedUpload(staged: StagedFile[], workRoot: string): Ana
     return { ...analyzed, workDir: dest, fromZip: true };
   }
 
-  // 情况 2/3：还原文件树后分析
+  // 情况 2：全部是 zip（多个压缩包一次上传）→ 各自解压到独立子目录，合并分析
+  if (staged.length > 1 && staged.every((s) => isZipName(s.relativePath))) {
+    const dest = path.join(workRoot, 'extracted');
+    fs.mkdirSync(dest, { recursive: true });
+    staged.forEach((s, i) => {
+      const base = path.basename(s.relativePath, path.extname(s.relativePath));
+      const subName = `${String(i + 1).padStart(2, '0')}-${base}`
+        .replace(/[\0-\x1f<>:"|?*\\/]/g, '')
+        .trim()
+        .slice(0, 80) || `zip-${i + 1}`;
+      extractZipSafely(s.absPath, path.join(dest, subName));
+    });
+    const analyzed = analyzeDirectory(dest);
+    return { ...analyzed, workDir: dest, fromZip: true };
+  }
+
+  // 情况 3/4：还原文件树后分析
   const dest = path.join(workRoot, 'extracted');
   fs.mkdirSync(dest, { recursive: true });
   let totalBytes = 0;

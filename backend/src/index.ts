@@ -1,16 +1,13 @@
-import fs from 'node:fs';
 import { createApp } from './app';
-import { config, dbFile, storageDir, tmpDir } from './config';
-import { getDb } from './db';
+import { config, dbPath, storageDir, tmpDir } from './config';
+import { getDb, initDb } from './db';
 import { ensureStorageDirs } from './services/storageService';
 
 function main(): void {
   ensureStorageDirs([config.dataDir, storageDir(), tmpDir()]);
-  // 预创建空库文件，避免首次写时目录缺失
-  if (!fs.existsSync(dbFile())) {
-    fs.writeFileSync(dbFile(), JSON.stringify({ users: [], teams: [], members: [], mods: [] }, null, 2), 'utf-8');
-  }
-  getDb(dbFile());
+
+  // 初始化 SQLite（首次启动自动建表；检测到旧 db.json 会自动迁移并备份）
+  const db = initDb(dbPath());
 
   if (config.jwtSecret === 'dev-only-secret-change-me') {
     if (process.env.NODE_ENV === 'production') {
@@ -28,10 +25,24 @@ function main(): void {
     console.error('[uncaughtException]', err);
   });
 
+  // 优雅退出：关闭数据库（WAL 落盘）后再结束
+  const shutdown = (signal: string): void => {
+    console.log(`[backend] ${signal} received, shutting down…`);
+    try {
+      getDb().close();
+    } catch {
+      /* ignore */
+    }
+    process.exit(0);
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+
   const app = createApp();
   app.listen(config.port, () => {
     console.log(`[backend] listening on http://localhost:${config.port}`);
     console.log(`[backend] data dir: ${config.dataDir}`);
+    console.log(`[backend] sqlite: ${dbPath()}`);
   });
 }
 

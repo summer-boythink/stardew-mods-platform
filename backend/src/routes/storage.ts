@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { config, dbFile } from '../config';
+import { config } from '../config';
 import { getDb } from '../db';
 import { authRequired } from '../middleware/auth';
-import { quotaLimit, usageOf } from '../services/storageService';
+import { quotaLimit } from '../services/storageService';
 import { formatBytes } from '../types';
 
 const router = Router();
@@ -11,16 +11,15 @@ router.use(authRequired);
 
 /** 我的配额：个人空间 + 我加入的所有团队空间 */
 router.get('/quota', (req, res) => {
-  const db = getDb(dbFile());
+  const db = getDb();
   const userId = req.user?.id as string;
-  const data = db.read();
-  const personal = usageOf(data, 'personal', userId, null);
-  const myMembers = data.members.filter((m) => m.userId === userId);
-  const teams = myMembers
+  const personal = db.usageOf('personal', userId, null);
+  const teams = db
+    .listMemberships(userId)
     .map((m) => {
-      const team = data.teams.find((t) => t.id === m.teamId);
+      const team = db.getTeam(m.teamId);
       if (!team) return null;
-      const u = usageOf(data, 'team', userId, team.id);
+      const u = db.usageOf('team', userId, team.id);
       return {
         scope: 'team' as const,
         teamId: team.id,
@@ -34,6 +33,7 @@ router.get('/quota', (req, res) => {
       };
     })
     .filter(Boolean);
+
   res.json({
     personal: {
       scope: 'personal' as const,

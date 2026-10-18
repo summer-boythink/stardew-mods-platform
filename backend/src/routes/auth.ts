@@ -1,6 +1,5 @@
 import { Router, type Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { dbFile } from '../config';
 import { getDb } from '../db';
 import { authRequired } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -50,22 +49,16 @@ router.post(
       return;
     }
 
-    const db = getDb(dbFile());
+    const db = getDb();
     // 快速失败路径（避免无谓的 bcrypt 开销）
-    if (db.read().users.some((u) => u.username.toLowerCase() === username.toLowerCase())) {
+    if (db.findUserByUsername(username)) {
       res.status(409).json({ error: '用户名已存在' });
       return;
     }
     const passwordHash = await hashPassword(password);
     const user = { id: uuidv4(), username, passwordHash, createdAt: new Date().toISOString() };
-
-    // 原子写入：查重与 push 在同一个同步 mutate 内完成，防止并发注册产生同名账号
-    const created = await db.mutate((d) => {
-      if (d.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) return false;
-      d.users.push(user);
-      return true;
-    });
-    if (!created) {
+    // 唯一索引保证并发注册同名账号不可能成功（失败返回 false）
+    if (!db.createUser(user)) {
       res.status(409).json({ error: '用户名已存在' });
       return;
     }
@@ -106,8 +99,8 @@ router.post(
     }
 
     // 3. 验账号密码（统一提示，不泄露账号是否存在）
-    const db = getDb(dbFile());
-    const user = db.read().users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+    const db = getDb();
+    const user = db.findUserByUsername(username);
     const passwordOk = user ? await verifyPassword(password, user.passwordHash) : false;
     if (!user || !passwordOk) {
       for (const k of keys) recordFail(k);
@@ -134,8 +127,7 @@ router.post(
 );
 
 router.get('/me', authRequired, (req, res) => {
-  const db = getDb(dbFile());
-  const user = db.read().users.find((u) => u.id === req.user?.id);
+  const user = getDb().getUserById(req.user?.id as string);
   if (!user) {
     res.status(401).json({ error: '用户不存在' });
     return;

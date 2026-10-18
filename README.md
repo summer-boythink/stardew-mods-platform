@@ -2,12 +2,12 @@
 
 支持 **电脑 / 手机端** 访问的星露谷 Mod 分享社区：玩家可以上传**包含多个 Mod 的文件夹、`.zip` 压缩包或单个 Mod 文件**，平台自动解析 `manifest.json`、推断分类、生成文件树与预览，并提供**个人存储空间（2GB）/ 团队存储空间（10GB）/ 完全公开分享**。
 
-- 技术栈：**React 18 + TypeScript + Vite**（前端） / **Node + Express + TypeScript**（后端）
+- 技术栈：**React 18 + TypeScript + Vite**（前端） / **Bun + Express + TypeScript**（后端）
 - UI：[`animal-island-ui`](https://github.com/guokaigdg/animal-island-ui/tree/main) 可爱岛屿风格 + 自研响应式布局（手机优先，汉堡菜单、单列卡片、触屏友好的上传器）
-- 后端与前端在**同一个目录**（本文件夹 Monorepo），ursor 开箱即用
-- 数据存储：文件系统 + JSON 元数据库，**无需安装 MySQL / Postgres / Docker**，个人服务器 / NAS / 旧电脑都能跑
+- 后端与前端在**同一个目录**（本文件夹 Monorepo），开箱即用
+- 数据存储：**SQLite（bun:sqlite，WAL + 事务）** + 文件系统存 Mod 本体，**无需安装 MySQL / Postgres / Docker**，个人服务器 / NAS / 旧电脑都能跑；首次启动会自动把旧版 `db.json` 迁移进 SQLite 并备份
 
-> 已验证：`tsc` 类型检查（前/后端/共享）全过、后端 7 个单测全过、21 项端到端链路（注册→上传→整理→下载→去重→团队）全过、前后端生产构建全过。
+> 已验证：`tsc` 类型检查（前/后端/共享）全过、后端 24 个单测全过、36 项端到端链路（注册→上传→整理→下载→去重→覆盖更新→拆分发布→多zip→团队→登录锁定）全过、前后端生产构建全过。
 
 ---
 
@@ -19,26 +19,27 @@ stardew-mods-platform/
 ├── shared/src/index.ts     # 前后端共享类型：Mod/团队/配额/分类推断
 ├── backend/
 │   ├── src/
-│   │   ├── index.ts        # 启动入口（建目录、加载库、监听端口）
+│   │   ├── index.ts        # 启动入口（建目录、初始化 SQLite、优雅退出、监听端口）
 │   │   ├── app.ts          # Express 装配：helmet/cors/限流/路由/错误处理
 │   │   ├── config.ts       # 端口/JWT/配额/上限（均可 env 覆盖）
-│   │   ├── db.ts           # 文件 JSON 数据库（原子落盘、串行写）
+│   │   ├── db.ts           # ★SQLite 数据层（bun:sqlite，WAL/事务/唯一约束/旧数据自动迁移）
 │   │   ├── types.ts        # 后端类型（与 shared 同步）
-│   │   ├── middleware/     # auth（Bearer JWT）/ errorHandler
+│   │   ├── middleware/     # auth（Bearer JWT）/ errorHandler（asyncHandler）
 │   │   ├── routes/         # auth / mods / teams / storage
 │   │   ├── services/
-│   │   │   ├── modParser.ts      # ★自动整理：zip安全解压/manifest解析/分类/文件树
-│   │   │   └── storageService.ts # 配额统计/文件落盘/预览图/删除清理
-│   │   └── utils/          # auth(jwt/bcrypt) / validation(zod) / text
-│   ├── tests/modParser.test.ts   # 解析器单测（bun test）
-│   ├── data/               # 运行数据（db.json + storage/ + tmp/，git 不提交）
+│   │   │   ├── modParser.ts      # ★自动整理：zip安全解压/manifest解析/分类/文件树/多zip
+│   │   │   └── storageService.ts # 文件落盘/打包/覆盖替换/预览图/删除清理
+│   │   └── utils/          # auth(jwt/bcrypt) / attempts(防爆破) / validation(zod) / text
+│   ├── tests/              # 单测：db / modParser / authGuards（bun test）
+│   ├── data/               # 运行数据（app.db + storage/ + tmp/，git 不提交）
 │   └── .env.example
 └── frontend/
     ├── src/
     │   ├── main.tsx / App.tsx / index.css   # 入口、路由、田园响应式样式
-    │   ├── api/client.ts   # 类型化 API 封装（含上传进度）
+    │   ├── api/client.ts   # 类型化 API 封装（含上传进度/覆盖/拆分参数）
     │   ├── context/AuthContext.tsx
-    │   ├── components/     # island（可爱UI封装）/ Layout / ModCard / QuotaBar / UploadDropzone
+    │   ├── components/     # island（可爱UI封装）/ Layout / ModCard / QuotaBar / UploadDropzone / DownloadButton / AuthedImage
+    │   ├── utils/mergeSplit.ts              # 拆分上传两轮结果合并（确认覆盖后）
     │   └── pages/          # Home（广场）/ Upload / MyMods / Team / ModDetail / Auth
     └── vite.config.ts      # /api 代理到后端 :4000
 ```
@@ -47,7 +48,7 @@ stardew-mods-platform/
 
 ## 快速启动（本地开发）
 
-环境要求：**Bun ≥ 1.0**（本机无 Node 也可，Bun 兼容运行前后端；有 Node 则 `bun` 换成 `npm` 同样可用）。
+环境要求：**Bun ≥ 1.0**（后端数据库用 `bun:sqlite`，需 Bun 运行；前端也可用 Node + npm 跑，把 `bun` 换成 `npm` 即可）。
 
 ```bash
 cd stardew-mods-platform
@@ -98,9 +99,8 @@ VITE_API_BASE=http://192.168.1.10:4000/api
 bun run --filter backend build
 bun run --filter frontend build
 
-# 启动后端（生产）
+# 启动后端（生产，需 Bun）
 cd backend && PORT=4000 JWT_SECRET=请换成随机长字符串 bun dist/index.js
-# 或用 node：PORT=4000 JWT_SECRET=xxx node dist/index.js
 ```
 
 把 `frontend/dist/` 用任意静态服务器托管（nginx / `bunx serve` / NAS Web Station），并将 `/api` 反代到后端 `:4000` 即可。示例 nginx：
@@ -129,23 +129,30 @@ location / { root /srv/stardew/frontend/dist; try_files $uri /index.html; }
 
 ## 核心功能说明
 
-### 1. 三种上传形态（`POST /api/mods/upload`，multipart）
+### 1. 上传形态与发布模式（`POST /api/mods/upload`，multipart）
 
 | 形态 | 前端操作 | 后端处理 |
 |---|---|---|
 | 单个 Mod 文件（`.dll` / `.json` / `.png` / `.xnb`…） | 「选文件」点选 1 个 | 原样存储，按扩展名/内容推断分类 |
 | `.zip` 压缩包（含 1 个或 N 个 Mod） | 「选文件」点选 zip / 拖拽 | 安全解压 → 找出**所有** `manifest.json` → 1 个记为单 Mod，≥2 个记为**合集包**并汇总子 Mod 名单 |
+| **多个 zip 一次选择** | 文件选择器多选 zip | 逐个安全解压后合并分析（合集包），或勾选「拆分发布」后每个 Mod 独立成一条记录 |
 | 整个文件夹 | 「选整个文件夹」（`webkitdirectory`，手机自动降级为文件选择）/ 多选拖拽 | 按 `relativePaths` 还原目录树 → 解析 → 打包为 `archive.zip` 供一键下载 |
 
-字段：`files`（文件，可多个）＋ `relativePaths`（与文件顺序对齐的相对路径 JSON 数组）＋ `scope/teamId/visibility/title/description/category/tags`。
+**发布模式**
+
+- **合并模式（默认）**：内容合并为一条记录（多 Mod 时分类为「合集包」）；
+- **拆分模式**（`split=1`，上传页勾选「拆分发布」）：内容里的每个 Mod 拆成独立记录单独发布（各自标题/分类/文件树/预览图，zip 内保留原目录名）。有重复时逐条跳过并在结果面板列出原因；
+- **重复覆盖**：同一计费空间内 `UniqueID` 重复时返回 **409 + `existingId` + `canOverwrite`**，前端弹窗询问是否覆盖；确认后带 `overwriteIds` 重传即可——**保留原 id、发布时间、下载次数与可见性**，只替换文件与信息（存储目录安全替换，失败自动回滚）。拆分模式同理：先跳过全部重复，再一键确认覆盖。
+
+字段：`files`（文件，可多个）＋ `relativePaths`（与文件顺序对齐的相对路径 JSON 数组）＋ `scope/teamId/visibility/title/description/category/tags` ＋ `split`（'0'/'1'）＋ `overwriteIds`（JSON 数组，仅覆盖这些记录 id）＋ `overwrite`（'1' 直接覆盖全部重复）。
 
 ### 2. 自动整理（`backend/src/services/modParser.ts`）
 
 - 兼容 SMAPI 标准 `manifest.json`（`Name/Author/Version/Description/UniqueID/ContentPackFor/Dependencies`），容忍 BOM；
-- 分类推断（`Content Patcher / 美化贴图 / 人物肖像 / 农场地图 / 汉化 / 工具辅助 / SMAPI框架 / 功能玩法 / 合集包 / 其他`），多 Mod 自动归为**合集包**；
+- 分类推断（`Content Patcher / 美化贴图 / 人物肖像 / 农场地图 / 汉化 / 工具辅助 / SMAPI框架 / 功能玩法 / 合集包 / 其他`），多 Mod 自动归为**合集包**（拆分模式则各自归类）；
 - 生成**文件树**（1200 节点上限）、统计文件数/体积、提取最多 6 张**预览图**（`preview/screenshot/cover` 优先）；
-- 同一计费空间下 `UniqueID` 重复上传返回 **409 + 已有记录 id**，避免广场被重复包淹没；
-- 安全：zip 条目路径穿越中和（不出目标目录）、zip 炸弹防护（条目数/解压体积上限）、文件名非法字符过滤。
+- 同一计费空间下 `UniqueID` 重复上传返回 **409 + 已有记录 id + canOverwrite**，前端弹窗确认后可覆盖更新（详见上文「发布模式」）；
+- 安全：zip 条目路径穿越中和（不出目标目录）、zip 炸弹防护（声明体积预检 + 条目数/解压体积上限）、文件名非法字符过滤。
 
 ### 3. 三种存储空间
 
@@ -156,7 +163,7 @@ location / { root /srv/stardew/frontend/dist; try_files $uri /index.html; }
 ### 4. 前端页面（全部适配手机）
 
 - `/` 广场：搜索（Mod名/作者/UniqueID/标签多关键词）、分类 chips、最新/最热/最大排序、分页；
-- `/upload` 上传：三形态选择器 → 空间/可见性 → 信息补充（留空即自动识别）→ 进度条 → 成功跳详情；
+- `/upload` 上传：三形态选择器（含多 zip 一次选）→ 空间/可见性/拆分发布 → 信息补充（留空即自动识别）→ 进度条 → 成功跳详情；重复时弹窗询问覆盖；拆分结果逐条展示（新建/覆盖/跳过原因）；
 - `/mine` 我的空间：配额条、搜索、公开/取消公开、下载、删除；
 - `/teams` 团队：创建、成员邀请/移除/退出、解散、团队 Mod 列表；
 - `/mods/:id` 详情：子 Mod 清单（含 UniqueID/版本）、文件树、预览图、下载计数、上传者可编辑/删除；
@@ -172,7 +179,7 @@ POST /api/auth/register {username, password, confirmPassword, captchaId, captcha
 POST /api/auth/login    {username, password, captchaId, captcha} → {token, user}
 GET  /api/auth/me  (Bearer)
 
-POST /api/mods/upload (Bearer, multipart) → ModRecord
+POST /api/mods/upload (Bearer, multipart) → 单条: ModRecord & {mode:'single', replaced?} ｜ 拆分: {mode:'split', created[], skipped[]}
 GET  /api/mods?q=&category=&sort=newest|popular|biggest&page=&pageSize=
 GET  /api/mods/mine (Bearer)
 GET  /api/mods/team/:teamId (Bearer + 成员)
@@ -192,7 +199,13 @@ DELETE /api/teams/:id (仅创建者，级联删 Mod 文件)
 GET  /api/storage/quota (Bearer) → {personal, teams[], serverLimits}
 ```
 
-统一错误格式：`{ "error": "中文原因" }`（去重上传 409 会多带 `existingId`）。
+统一错误格式：`{ "error": "中文原因" }`（去重上传 409 会多带 `existingId` 与 `canOverwrite`）。
+
+**数据一致性策略（SQLite）**
+- 用户名唯一、团队成员唯一由**数据库唯一约束**兜底，并发注册/重复邀请不可能成功；
+- 「查重 + 配额 + 写入 / 覆盖」全部放进同一个 **IMMEDIATE 事务**，并发上传不会绕过检查；
+- WAL 模式读写并发安全；优雅退出时自动关闭数据库（`SIGINT`/`SIGTERM`）；
+- 首次启动检测到旧 `db.json` 会**自动迁移进 SQLite 并改名备份**（`.bak`），不会丢数据。
 
 **登录安全策略**
 - 注册需**两次输入密码**（前后端双重比对，不一致 400）＋**图形验证码**（SVG，一次性、用过即焚，5 分钟过期）；
@@ -207,17 +220,16 @@ GET  /api/storage/quota (Bearer) → {personal, teams[], serverLimits}
 
 ```bash
 bun install                          # 安装全部依赖
-bun run --filter backend dev         # 后端开发（热重载 :4000）
+bun run --filter backend dev         # 后端开发（热重载 :4000，bun --watch）
 bun run --filter frontend dev        # 前端开发（:5173）
-bun run --filter backend test        # 后端单测（解析器 7 用例）
-bun run --filter backend typecheck   # 后端类型检查
-bun run --filter frontend typecheck  # 前端类型检查
-bun run --filter backend build       # 后端构建到 backend/dist
-bun run --filter frontend build      # 前端构建到 frontend/dist
+bun test                             # 前后端全部单测（后端 24 + 前端 12）
+bun run typecheck                    # 三个包类型检查
+bun run build                        # 构建 shared/backend/frontend
 ```
 
 ## 已知取舍
 
-1. 数据库用 **JSON 文件 + 原子落盘** 而非 Postgres：零运维、备份即拷贝 `backend/data/`；代价是超大规模并发写入不如专业数据库（交流平台量级足够）。
-2. 解压/打包用 `adm-zip`（纯 JS 零原生依赖）：`.rar/.7z` 请先转成 `.zip` 再传；超大包（>500MB）会被拒。
-3. `shared/` 类型与 `backend/src/types.ts` 双份维护：避免 workspace 协议在某些包管理器下的解析坑，改字段时请两边同步。
+1. 数据库用 **SQLite（bun:sqlite）** 而非 Postgres：零安装、单文件、事务与唯一约束齐全；备份即拷贝 `backend/data/app.db`（或 `sqlite3 app.db ".backup x.db"`）。多实例横向扩展时再换 Postgres 即可（DAL 已集中在 `db.ts`）。
+2. 后端需 **Bun 运行**（`bun:sqlite`）；前端构建产物是纯静态文件，任意静态服务器可托管。
+3. 解压/打包用 `adm-zip`（纯 JS 零原生依赖）：`.rar/.7z` 请先转成 `.zip` 再传；超大包（>500MB）会被拒。
+4. `shared/` 类型与 `backend/src/types.ts` 双份维护：避免 workspace 协议在某些包管理器下的解析坑，改字段时请两边同步。

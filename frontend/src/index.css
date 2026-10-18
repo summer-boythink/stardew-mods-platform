@@ -95,6 +95,12 @@ h1, h2, h3, .hero-title, .detail-title, .page-title {
 .captcha-img:hover { border-color: var(--sakura-deep); }
 .captcha-img svg { display: block; border-radius: 8px; }
 
+/* 复选框行（拆分发布等选项） */
+.checkbox-row { flex-direction: row !important; align-items: flex-start; gap: 8px !important; cursor: pointer; }
+.checkbox-row input[type='checkbox'] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--rose); flex: none; }
+.checkbox-row span { font-weight: 600; line-height: 1.6; }
+.checkbox-row .muted { font-weight: 400; }
+
 /* 搜索与筛选 */
 .search-bar { display: flex; gap: 10px; }
 .search-bar .input { flex: 1; }

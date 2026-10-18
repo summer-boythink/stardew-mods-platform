@@ -36,6 +36,7 @@ export function tmpDir(): string {
   return path.join(config.dataDir, 'tmp');
 }
 
-export function dbFile(): string {
-  return path.join(config.dataDir, 'db.json');
+/** SQLite 数据库文件路径（app.db 为当前主库；旧版为 db.json，首次启动自动迁移） */
+export function dbPath(): string {
+  return path.join(config.dataDir, 'app.db');
 }

@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { dbFile } from '../config';
 import { getDb } from '../db';
 import { authRequired } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
+import { removeModStorage } from '../services/storageService';
 import { createTeamSchema, usernameSchema } from '../utils/validation';
 
 const router = Router();
@@ -19,50 +19,42 @@ router.post(
       res.status(400).json({ error: parsed.error.issues[0]?.message ?? '参数错误' });
       return;
     }
-    const db = getDb(dbFile());
+    const db = getDb();
     const userId = req.user?.id as string;
     const username = req.user?.username as string;
+    const now = new Date().toISOString();
     const team = {
       id: uuidv4(),
       name: parsed.data.name,
       description: parsed.data.description ?? '',
       ownerId: userId,
       ownerName: username,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
     };
-    await db.mutate((d) => {
-      d.teams.push(team);
-      d.members.push({ teamId: team.id, userId, username, joinedAt: new Date().toISOString(), role: 'owner' });
-    });
+    db.createTeam(team, { teamId: team.id, userId, username, joinedAt: now, role: 'owner' });
     res.status(201).json(team);
   }),
 );
 
 /** 我加入的团队 */
 router.get('/mine', (req, res) => {
-  const db = getDb(dbFile());
-  const userId = req.user?.id as string;
-  const myTeamIds = new Set(db.read().members.filter((m) => m.userId === userId).map((m) => m.teamId));
-  const teams = db.read().teams.filter((t) => myTeamIds.has(t.id));
+  const teams = getDb().listTeamsForUser(req.user?.id as string);
   res.json(teams);
 });
 
 /** 团队详情（含成员） */
 router.get('/:id', (req, res) => {
-  const db = getDb(dbFile());
-  const team = db.read().teams.find((t) => t.id === req.params.id);
+  const db = getDb();
+  const team = db.getTeam(req.params.id);
   if (!team) {
     res.status(404).json({ error: '团队不存在' });
     return;
   }
-  const userId = req.user?.id as string;
-  const isMember = db.read().members.some((m) => m.teamId === team.id && m.userId === userId);
-  if (!isMember) {
+  if (!db.isMember(team.id, req.user?.id as string)) {
     res.status(403).json({ error: '仅团队成员可查看' });
     return;
   }
-  const members = db.read().members.filter((m) => m.teamId === team.id);
-  res.json({ ...team, members });
+  res.json({ ...team, members: db.listMembers(team.id) });
 });
 
 /** 邀请成员：通过用户名添加（简化版，适合朋友间分享） */
@@ -74,34 +66,29 @@ router.post(
       res.status(400).json({ error: '请提供正确的用户名' });
       return;
     }
-    const db = getDb(dbFile());
-    const team = db.read().teams.find((t) => t.id === req.params.id);
+    const db = getDb();
+    const team = db.getTeam(req.params.id);
     if (!team) {
       res.status(404).json({ error: '团队不存在' });
       return;
     }
     const userId = req.user?.id as string;
-    const me = db.read().members.find((m) => m.teamId === team.id && m.userId === userId);
-    if (!me) {
+    if (!db.isMember(team.id, userId)) {
       res.status(403).json({ error: '仅团队成员可邀请' });
       return;
     }
-    const target = db.read().users.find((u) => u.username.toLowerCase() === nameParsed.data.toLowerCase());
+    const target = db.findUserByUsername(nameParsed.data);
     if (!target) {
       res.status(404).json({ error: '该用户不存在，请先注册' });
       return;
     }
-    // 原子加入：查重与 push 在同一个同步 mutate 内，防并发重复邀请
-    const added = await db.mutate((d) => {
-      if (d.members.some((m) => m.teamId === team.id && m.userId === target.id)) return false;
-      d.members.push({
-        teamId: team.id,
-        userId: target.id,
-        username: target.username,
-        joinedAt: new Date().toISOString(),
-        role: 'member',
-      });
-      return true;
+    // 复合主键 + INSERT OR IGNORE：并发重复邀请不可能成功
+    const added = db.addMember({
+      teamId: team.id,
+      userId: target.id,
+      username: target.username,
+      joinedAt: new Date().toISOString(),
+      role: 'member',
     });
     if (!added) {
       res.status(409).json({ error: '该用户已在团队中' });
@@ -115,8 +102,8 @@ router.post(
 router.delete(
   '/:id/members/:userId',
   asyncHandler(async (req, res) => {
-    const db = getDb(dbFile());
-    const team = db.read().teams.find((t) => t.id === req.params.id);
+    const db = getDb();
+    const team = db.getTeam(req.params.id);
     if (!team) {
       res.status(404).json({ error: '团队不存在' });
       return;
@@ -132,9 +119,7 @@ router.delete(
       res.status(400).json({ error: '不能移除团队创建者，请先解散团队' });
       return;
     }
-    await db.mutate((d) => {
-      d.members = d.members.filter((m) => !(m.teamId === team.id && m.userId === targetId));
-    });
+    db.removeMember(team.id, targetId);
     res.json({ ok: true });
   }),
 );
@@ -143,8 +128,8 @@ router.delete(
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    const db = getDb(dbFile());
-    const team = db.read().teams.find((t) => t.id === req.params.id);
+    const db = getDb();
+    const team = db.getTeam(req.params.id);
     if (!team) {
       res.status(404).json({ error: '团队不存在' });
       return;
@@ -153,15 +138,8 @@ router.delete(
       res.status(403).json({ error: '仅创建者可解散团队' });
       return;
     }
-    const removedModIds = await db.mutate((d) => {
-      const ids = d.mods.filter((m) => m.teamId === team.id).map((m) => m.id);
-      d.mods = d.mods.filter((m) => m.teamId !== team.id);
-      d.teams = d.teams.filter((t) => t.id !== team.id);
-      d.members = d.members.filter((m) => m.teamId !== team.id);
-      return ids;
-    });
-    // 物理文件清理（失败不阻断响应）
-    const { removeModStorage } = await import('../services/storageService');
+    // 事务内级联删除记录，随后清理物理文件（失败不阻断响应）
+    const removedModIds = db.deleteTeamCascade(team.id);
     for (const id of removedModIds) {
       try {
         removeModStorage(id);

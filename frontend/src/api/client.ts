@@ -36,12 +36,19 @@ export class ApiError extends Error {
   existingId?: string;
   retryAfter?: number;
   remaining?: number;
-  constructor(status: number, message: string, extra?: { existingId?: string; retryAfter?: number; remaining?: number }) {
+  /** 409 重复上传时：当前用户是否有权覆盖该记录 */
+  canOverwrite?: boolean;
+  constructor(
+    status: number,
+    message: string,
+    extra?: { existingId?: string; retryAfter?: number; remaining?: number; canOverwrite?: boolean },
+  ) {
     super(message);
     this.status = status;
     this.existingId = extra?.existingId;
     this.retryAfter = extra?.retryAfter;
     this.remaining = extra?.remaining;
+    this.canOverwrite = extra?.canOverwrite;
   }
 }
 
@@ -50,16 +57,24 @@ async function parseError(res: Response): Promise<ApiError> {
   let existingId: string | undefined;
   let retryAfter: number | undefined;
   let remaining: number | undefined;
+  let canOverwrite: boolean | undefined;
   try {
-    const data = (await res.json()) as { error?: string; existingId?: string; retryAfter?: number; remaining?: number };
+    const data = (await res.json()) as {
+      error?: string;
+      existingId?: string;
+      retryAfter?: number;
+      remaining?: number;
+      canOverwrite?: boolean;
+    };
     if (data?.error) message = data.error;
     if (data?.existingId) existingId = data.existingId;
     if (typeof data?.retryAfter === 'number') retryAfter = data.retryAfter;
     if (typeof data?.remaining === 'number') remaining = data.remaining;
+    if (typeof data?.canOverwrite === 'boolean') canOverwrite = data.canOverwrite;
   } catch {
     /* 非 JSON 响应 */
   }
-  return new ApiError(res.status, message, { existingId, retryAfter, remaining });
+  return new ApiError(res.status, message, { existingId, retryAfter, remaining, canOverwrite });
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -170,14 +185,44 @@ export interface UploadOptions {
   description?: string;
   category?: string;
   tags?: string;
+  /** 拆分发布：压缩包/文件夹含多个 Mod 时，每个 Mod 单独一条记录 */
+  split?: boolean;
+  /** 遇到重复直接覆盖（默认 false 时返回 409 让前端询问） */
+  overwrite?: boolean;
+  /** 仅覆盖这些已存在记录 id（前端确认弹窗后回传） */
+  overwriteIds?: string[];
   onProgress?: (percent: number) => void;
+}
+
+/** 拆分模式中跳过的子 Mod 及原因 */
+export interface UploadSkippedItem {
+  name: string;
+  reason: string;
+  existingId?: string;
+  canOverwrite?: boolean;
+}
+
+/** 拆分模式响应：一次上传产生多条记录（被覆盖的条目带 replaced=true） */
+export interface SplitUploadResult {
+  mode: 'split';
+  created: Array<ModRecord & { replaced?: boolean }>;
+  skipped: UploadSkippedItem[];
+}
+
+/** 单条模式响应：一条记录（覆盖更新时 replaced=true） */
+export type SingleUploadResult = ModRecord & { mode?: 'single'; replaced?: boolean };
+
+export type UploadResult = SingleUploadResult | SplitUploadResult;
+
+export function isSplitResult(r: UploadResult): r is SplitUploadResult {
+  return (r as SplitUploadResult).mode === 'split' && Array.isArray((r as SplitUploadResult).created);
 }
 
 /**
  * 上传 Mod：用 XMLHttpRequest 以支持进度条（fetch 尚无上传进度）。
  * files 为 File[]；相对路径通过 webkitRelativePath 或 name 还原。
  */
-export function apiUploadMod(opts: UploadOptions): Promise<ModRecord> {
+export function apiUploadMod(opts: UploadOptions): Promise<UploadResult> {
   return new Promise((resolve, reject) => {
     const fd = new FormData();
     for (const f of opts.files) fd.append('files', f, f.name);
@@ -193,6 +238,11 @@ export function apiUploadMod(opts: UploadOptions): Promise<ModRecord> {
     if (opts.description) fd.append('description', opts.description);
     if (opts.category) fd.append('category', opts.category);
     if (opts.tags) fd.append('tags', opts.tags);
+    fd.append('split', opts.split ? '1' : '0');
+    if (opts.overwrite) fd.append('overwrite', '1');
+    if (opts.overwriteIds && opts.overwriteIds.length > 0) {
+      fd.append('overwriteIds', JSON.stringify(opts.overwriteIds.slice(0, 200)));
+    }
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', withBase('/api/mods/upload'));
@@ -205,9 +255,20 @@ export function apiUploadMod(opts: UploadOptions): Promise<ModRecord> {
     };
     xhr.onload = () => {
       try {
-        const data = JSON.parse(xhr.responseText || '{}') as ModRecord & { error?: string; existingId?: string };
+        const data = JSON.parse(xhr.responseText || '{}') as UploadResult & {
+          error?: string;
+          existingId?: string;
+          canOverwrite?: boolean;
+        };
         if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-        else reject(new ApiError(xhr.status, data.error || `上传失败（${xhr.status}）`, { existingId: data.existingId }));
+        else {
+          reject(
+            new ApiError(xhr.status, data.error || `上传失败（${xhr.status}）`, {
+              existingId: data.existingId,
+              canOverwrite: data.canOverwrite,
+            }),
+          );
+        }
       } catch {
         reject(new ApiError(xhr.status, `上传失败（${xhr.status}）`));
       }

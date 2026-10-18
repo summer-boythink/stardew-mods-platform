@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiError, apiHealth, apiMyTeams, apiQuota, apiUploadMod } from '../api/client';
+import {
+  ApiError,
+  apiHealth,
+  apiMyTeams,
+  apiQuota,
+  apiUploadMod,
+  isSplitResult,
+  type SingleUploadResult,
+  type SplitUploadResult,
+  type UploadResult,
+} from '../api/client';
 import { UploadDropzone, type PickedFiles } from '../components/UploadDropzone';
 import { IButton, ICard } from '../components/island';
 import { useAuth } from '../context/AuthContext';
 import { MOD_CATEGORIES, formatBytes, type ModRecord, type QuotaInfo, type TeamRecord } from '../types';
+import { mergeSplitResults, overwritableItems } from '../utils/mergeSplit';
 
 export function UploadPage(): JSX.Element {
   const { user } = useAuth();
@@ -13,6 +24,7 @@ export function UploadPage(): JSX.Element {
   const [scope, setScope] = useState<'personal' | 'team' | 'public'>('personal');
   const [teamId, setTeamId] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'team' | 'public'>('private');
+  const [split, setSplit] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -22,7 +34,8 @@ export function UploadPage(): JSX.Element {
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState<ModRecord | null>(null);
+  const [done, setDone] = useState<SingleUploadResult | null>(null);
+  const [splitResult, setSplitResult] = useState<SplitUploadResult | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -49,9 +62,33 @@ export function UploadPage(): JSX.Element {
     );
   }
 
+  const refreshQuota = (): void => {
+    apiQuota().then(setQuota).catch(() => {});
+  };
+
+  /** 发起一次上传请求（overwriteIds 用于覆盖确认后的重试） */
+  const doUpload = (extra: { overwriteIds?: string[]; overwrite?: boolean } = {}): Promise<UploadResult> => {
+    if (!picked) throw new Error('未选择文件');
+    return apiUploadMod({
+      files: picked.files,
+      scope,
+      teamId: teamId || undefined,
+      visibility,
+      split,
+      title: title.trim() || undefined,
+      description: description.trim() || undefined,
+      category: category || undefined,
+      tags: tags.trim() || undefined,
+      overwriteIds: extra.overwriteIds,
+      overwrite: extra.overwrite,
+      onProgress: setProgress,
+    });
+  };
+
   const submit = async (): Promise<void> => {
     setError('');
     setDone(null);
+    setSplitResult(null);
     if (!picked || picked.files.length === 0) {
       setError('请先选择要上传的文件、压缩包或文件夹');
       return;
@@ -76,24 +113,56 @@ export function UploadPage(): JSX.Element {
     setUploading(true);
     setProgress(0);
     try {
-      const record = await apiUploadMod({
-        files: picked.files,
-        scope,
-        teamId: teamId || undefined,
-        visibility,
-        title: title.trim() || undefined,
-        description: description.trim() || undefined,
-        category: category || undefined,
-        tags: tags.trim() || undefined,
-        onProgress: setProgress,
-      });
-      setDone(record);
-      setProgress(100);
+      const result = await doUpload({});
+      if (isSplitResult(result)) {
+        setSplitResult(result);
+        // 拆分模式下若有可覆盖的重复项 → 弹窗询问是否覆盖
+        const overwritable = overwritableItems(result);
+        if (overwritable.length > 0) {
+          const names = overwritable.slice(0, 3).map((s) => s.name).join('、');
+          const more = overwritable.length > 3 ? ` 等 ${overwritable.length} 个` : '';
+          const ok = window.confirm(
+            `有 ${overwritable.length} 个 Mod 已存在（${names}${more}）。\n\n是否覆盖这些已有记录？\n覆盖会替换它们的文件与信息（发布时间、下载次数和可见性保持不变），其余已上传的不会重复上传。`,
+          );
+          if (ok) {
+            setProgress(0);
+            const second = await doUpload({ overwriteIds: overwritable.map((s) => s.existingId as string) });
+            if (isSplitResult(second)) setSplitResult(mergeSplitResults(result, second));
+          }
+        }
+      } else {
+        setDone(result);
+        setProgress(100);
+      }
+      refreshQuota();
     } catch (e) {
-      const err = e as ApiError;
-      setError(err.message + (err.existingId ? `（已有记录，可前往查看）` : ''));
-      if (err.existingId) {
-        setDone(null);
+      const err = e instanceof ApiError ? e : new ApiError(0, '上传失败');
+      // 单条模式的重复上传（409）→ 弹窗询问是否覆盖
+      if (err.status === 409 && err.existingId) {
+        if (err.canOverwrite === false) {
+          setError(`${err.message}（该记录由其他成员上传，无法覆盖）`);
+        } else {
+          const ok = window.confirm(
+            `${err.message}\n\n是否覆盖已有记录？\n覆盖会替换其文件与信息（发布时间、下载次数和可见性保持不变）。`,
+          );
+          if (ok) {
+            try {
+              setProgress(0);
+              const retry = await doUpload({ overwriteIds: [err.existingId] });
+              if (!isSplitResult(retry)) {
+                setDone(retry);
+                setProgress(100);
+                refreshQuota();
+              }
+            } catch (e2) {
+              setError(e2 instanceof Error ? e2.message : '覆盖上传失败，请重试');
+            }
+          } else {
+            setError('已取消覆盖，未上传任何内容');
+          }
+        }
+      } else {
+        setError(err.message);
       }
     } finally {
       setUploading(false);
@@ -110,7 +179,7 @@ export function UploadPage(): JSX.Element {
             <UploadDropzone onPick={setPicked} disabled={uploading} />
           </ICard>
           <ICard>
-            <h3>2. 存放位置与可见性</h3>
+            <h3>2. 存放位置与发布方式</h3>
             <div className="form-grid">
               <label>
                 存储空间
@@ -156,6 +225,13 @@ export function UploadPage(): JSX.Element {
                   {scope === 'public' && <option value="public">🌍 公开</option>}
                 </select>
               </label>
+              <label className="checkbox-row">
+                <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+                <span>
+                  拆分发布：压缩包 / 文件夹内含多个 Mod 时，每个 Mod 单独发布
+                  <span className="muted">（不勾选则合并为一个「合集包」；选择多个 zip 时也适用）</span>
+                </span>
+              </label>
             </div>
             {quota && (
               <p className="muted">
@@ -173,7 +249,7 @@ export function UploadPage(): JSX.Element {
             <div className="form-grid">
               <label>
                 标题
-                <input className="input" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="不填则用 manifest 的 Name" />
+                <input className="input" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="不填则用 manifest 的 Name（拆分模式下自动用每个子 Mod 的名字）" />
               </label>
               <label>
                 分类（不填自动推断）
@@ -207,7 +283,8 @@ export function UploadPage(): JSX.Element {
             {error && <div className="state-error">{error}</div>}
             {done && (
               <div className="state-ok">
-                ✅ 上传成功并已自动整理：<strong>{done.title}</strong>（{done.subMods.length} 个 Mod · {done.category}）
+                ✅ {done.replaced ? '已覆盖更新' : '上传成功'}并已自动整理：<strong>{done.title}</strong>（
+                {done.subMods.length} 个 Mod · {done.category}）
                 <div className="row-gap">
                   <IButton islandType="primary" onClick={() => navigate(`/mods/${done.id}`)}>
                     查看 Mod 详情
@@ -215,12 +292,37 @@ export function UploadPage(): JSX.Element {
                 </div>
               </div>
             )}
+            {splitResult && (
+              <div className="state-ok">
+                ✅ 拆分发布完成：成功 {splitResult.created.length} 个
+                {splitResult.skipped.length > 0 ? `，跳过 ${splitResult.skipped.length} 个` : ''}
+                <ul className="member-list" style={{ marginTop: 8 }}>
+                  {splitResult.created.map((m) => (
+                    <li key={m.id}>
+                      <Link to={`/mods/${m.id}`}>{m.title}</Link>
+                      <span className="muted">
+                        {m.replaced ? '已覆盖更新' : '新发布'} · {m.fileCount} 个文件
+                      </span>
+                    </li>
+                  ))}
+                  {splitResult.skipped.map((s, i) => (
+                    <li key={`${s.existingId ?? s.name}-${i}`}>
+                      <span>⏭ {s.name}</span>
+                      <span className="muted">{s.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="row-gap">
-              <IButton islandType="primary" loading={uploading} onClick={submit}>
+              <IButton islandType="primary" loading={uploading} onClick={() => void submit()}>
                 {uploading ? '上传整理中…' : '🚀 上传并自动整理'}
               </IButton>
             </div>
-            <p className="muted">压缩包会自动拆出所有 manifest.json 并识别为{`合集包`}；文件夹上传会保留目录结构并打包供下载。</p>
+            <p className="muted">
+              压缩包会自动拆出所有 manifest.json；文件夹上传会保留目录结构并打包供下载；遇到重复 Mod
+              会询问你是否覆盖。选择多个压缩包可一次上传，勾选「拆分发布」则每个 Mod 独立成一条记录。
+            </p>
           </ICard>
         </div>
       </div>

@@ -111,4 +111,46 @@ describe('extractZipSafely / analyzeStagedUpload', () => {
     expect(fs.existsSync(path.join(outDir, 'GoodMod', 'manifest.json'))).toBe(true);
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  test('多个 zip 一次上传：逐个解压并合并分析', () => {
+    const dir = tmp();
+    const makeZip = (zipName: string, modName: string, uniqueId: string): string => {
+      const p = path.join(dir, zipName);
+      const z = new AdmZip();
+      z.addFile(
+        `${modName}/manifest.json`,
+        Buffer.from(JSON.stringify({ Name: modName, Author: 't', Version: '1.0.0', UniqueID: uniqueId })),
+      );
+      z.addFile(`${modName}/data.txt`, Buffer.from('x'));
+      z.writeZip(p);
+      return p;
+    };
+    const zipA = makeZip('a.zip', 'ModA', 'T.A');
+    const zipB = makeZip('b.zip', 'ModB', 'T.B');
+    const workRoot = path.join(dir, 'work');
+    const r = analyzeStagedUpload(
+      [
+        { absPath: zipA, relativePath: 'a.zip', size: fs.statSync(zipA).size },
+        { absPath: zipB, relativePath: 'b.zip', size: fs.statSync(zipB).size },
+      ],
+      workRoot,
+    );
+    expect(r.fromZip).toBe(true);
+    expect(r.subMods.map((m) => m.name).sort()).toEqual(['ModA', 'ModB']);
+    expect(r.fileCount).toBe(4);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('拆分模式数据基础：entries 带 rel 与 size', () => {
+    const dir = tmp();
+    const modDir = path.join(dir, 'ModX');
+    fs.mkdirSync(modDir, { recursive: true });
+    fs.writeFileSync(path.join(modDir, 'manifest.json'), JSON.stringify({ Name: 'ModX', UniqueID: 'T.X' }));
+    fs.writeFileSync(path.join(modDir, 'blob.bin'), Buffer.alloc(42));
+    const r = analyzeDirectory(dir);
+    expect(r.entries).toHaveLength(2);
+    const blob = r.entries.find((e) => e.rel.endsWith('blob.bin'));
+    expect(blob?.size).toBe(42);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
