@@ -68,6 +68,20 @@ bun run --filter frontend dev
 3. 上传成功后自动跳详情页，可一键下载。
 
 手机访问：保证手机与电脑同一 Wi-Fi，用电脑 IP 打开，如 `http://192.168.1.10:5173`（vite 已开 `--host`）。
+此时前端默认仍请求**同源相对路径** `/api`，手机上会指向手机自身而失败；
+请把 `frontend/.env.local` 改为电脑局域网 IP 直连后端后重启前端：
+
+```bash
+# frontend/.env.local（不提交，仅本机生效，优先级高于 .env）
+VITE_API_BASE=http://192.168.1.10:4000/api
+```
+
+前端后端地址配置（`frontend/src/api/client.ts` 统一拼接）：
+
+| 文件 | 是否提交 | 说明 |
+|---|---|---|
+| `frontend/.env` | ✅ 提交 | 默认值 `VITE_API_BASE=/api`（dev 走 vite 代理、生产走同源） |
+| `frontend/.env.local` | ❌ 不提交 | 本机覆盖，优先级更高；手机联调用上面示例 |
 
 ---
 

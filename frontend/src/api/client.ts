@@ -2,6 +2,18 @@ import type { ModRecord, PagedResult, QuotaInfo, TeamDetail, TeamRecord } from '
 
 const TOKEN_KEY = 'stardew_token';
 
+/**
+ * 后端地址：来自前端 .env / .env.local 的 VITE_API_BASE（.env.local 优先）。
+ * - 默认 `/api`：dev 走 vite 代理、生产走同源；
+ * - 手机联调可设为 `http://192.168.1.10:4000/api` 直连后端。
+ */
+export const API_BASE = ((import.meta.env.VITE_API_BASE as string | undefined) || '/api').replace(/\/+$/, '');
+
+function withBase(path: string): string {
+  if (path.startsWith('/api')) return `${API_BASE}${path.slice(4)}`;
+  return path;
+}
+
 export function getToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY);
@@ -54,7 +66,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(withBase(path), { ...init, headers });
   if (!res.ok) throw await parseError(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -172,7 +184,7 @@ export function apiUploadMod(opts: UploadOptions): Promise<ModRecord> {
     if (opts.tags) fd.append('tags', opts.tags);
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/mods/upload');
+    xhr.open('POST', withBase('/api/mods/upload'));
     const token = getToken();
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = (e) => {
@@ -211,11 +223,11 @@ export async function apiDeleteMod(id: string): Promise<{ ok: boolean }> {
 }
 
 export function modDownloadUrl(id: string): string {
-  return `/api/mods/${encodeURIComponent(id)}/download`;
+  return withBase(`/api/mods/${encodeURIComponent(id)}/download`);
 }
 
 export function modPreviewUrl(modId: string, file: string): string {
-  return `/api/mods/${encodeURIComponent(modId)}/preview/${encodeURIComponent(file)}`;
+  return withBase(`/api/mods/${encodeURIComponent(modId)}/preview/${encodeURIComponent(file)}`);
 }
 
 /* ---------- Teams ---------- */

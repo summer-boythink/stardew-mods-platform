@@ -12,4 +12,5 @@ frontend/dist/
 .DS_Store
 .env
 .env.local
+!frontend/.env
 coverage/
