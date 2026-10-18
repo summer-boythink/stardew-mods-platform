@@ -230,6 +230,39 @@ export function modPreviewUrl(modId: string, file: string): string {
   return withBase(`/api/mods/${encodeURIComponent(modId)}/preview/${encodeURIComponent(file)}`);
 }
 
+/**
+ * 带鉴权下载私有/团队 Mod：
+ * 浏览器直接点 <a href> 不会携带 Authorization 头，私有 Mod 会 403，
+ * 因此先带 Token fetch 成 Blob，再用临时链接触发保存。
+ * （代价是文件会先进入内存；公开 Mod 请直接用 modDownloadUrl 由浏览器流式下载）
+ */
+export async function downloadModFile(id: string, fileName?: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(modDownloadUrl(id), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw await parseError(res);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName || 'mod-download.zip';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // 延迟释放，确保各浏览器完成下载启动
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** 拉取需要鉴权的图片（私有/团队 Mod 预览图）为 object URL */
+export async function fetchAuthedObjectUrl(url: string): Promise<string> {
+  const token = getToken();
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw await parseError(res);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 /* ---------- Teams ---------- */
 
 export async function apiMyTeams(): Promise<TeamRecord[]> {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiDeleteMod, apiMyMods, apiQuota, apiUpdateMod, modDownloadUrl } from '../api/client';
+import { apiDeleteMod, apiMyMods, apiQuota, apiUpdateMod } from '../api/client';
+import { DownloadButton } from '../components/DownloadButton';
 import { QuotaBar } from '../components/QuotaBar';
 import { IButton, ICard } from '../components/island';
 import { useAuth } from '../context/AuthContext';
@@ -110,9 +111,7 @@ export function MyModsPage(): JSX.Element {
                 </div>
               </div>
               <div className="mine-actions">
-                <a className="btn" href={modDownloadUrl(m.id)}>
-                  ⬇ 下载
-                </a>
+                <DownloadButton mod={m} className="btn" label="⬇ 下载" />
                 <IButton onClick={() => void togglePublic(m)}>{m.visibility === 'public' ? '取消公开' : '公开'}</IButton>
                 <IButton islandType="ghost" onClick={() => void remove(m)}>
                   删除

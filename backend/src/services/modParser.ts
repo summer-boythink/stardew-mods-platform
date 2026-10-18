@@ -314,9 +314,16 @@ export function extractZipSafely(zipPath: string, destDir: string): { entries: n
       fs.mkdirSync(resolved, { recursive: true });
       continue;
     }
+    // 解压前先按 zip 头声明的未压缩体积拦截，避免 getData() 先把超大内容解进内存（zip 炸弹）
+    const declared = Number(entry.header?.size);
+    const declaredSafe = Number.isFinite(declared) && declared > 0 ? declared : 0;
+    if (declaredSafe > config.maxExtractedBytes || total + declaredSafe > config.maxExtractedBytes) {
+      throw new Error('解压后体积过大，已拒绝（疑似 zip 炸弹）');
+    }
     const data = entry.getData();
     total += data.length;
     if (total > config.maxExtractedBytes) {
+      // header 声明值可能被伪造为 0，解压后再兜底校验一次
       throw new Error('解压后体积过大，已拒绝（疑似 zip 炸弹）');
     }
     fs.mkdirSync(path.dirname(resolved), { recursive: true });

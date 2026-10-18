@@ -7,6 +7,7 @@ import mime from 'mime-types';
 import { config, dbFile, tmpDir } from '../config';
 import { getDb } from '../db';
 import { authOptional, authRequired } from '../middleware/auth';
+import { asyncHandler } from '../middleware/errorHandler';
 import { analyzeStagedUpload, type StagedFile } from '../services/modParser';
 import {
   modStoragePath,
@@ -35,10 +36,6 @@ const upload = multer({
   },
 });
 
-function isMemberOf(db: ReturnType<typeof getDb>['read'], teamId: string, userId: string): boolean {
-  return db().members.some((m) => m.teamId === teamId && m.userId === userId);
-}
-
 function canViewMod(mod: ModRecord, userId?: string, isMember = false): boolean {
   if (mod.visibility === 'public') return true;
   if (!userId) return false;
@@ -62,7 +59,7 @@ router.post(
   authRequired,
   // multer 自带类型与 express 4/5 混装时可能出现 RequestHandler 重载不匹配，运行时无影响，这里转 any 隔离
   upload.array('files', 2000) as unknown as import('express').RequestHandler,
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
   const workRoot = path.join(tmpDir(), `work-${uuidv4()}`);
   let stagedTmp: string[] = [];
   try {
@@ -204,38 +201,16 @@ router.post(
     const modId = newModId();
     let storedFileName: string;
     let fileSize: number;
-    if (staged.length === 1 && staged[0].relativePath.toLowerCase().endsWith('.zip')) {
-      const r = persistOriginalFile(modId, staged[0].absPath, path.basename(staged[0].relativePath));
-      storedFileName = r.storedFileName;
-      fileSize = r.fileSize;
-    } else if (staged.length === 1 && analyzed.fromZip === false && analyzed.fileCount === 1) {
-      const r = persistOriginalFile(modId, staged[0].absPath, path.basename(staged[0].relativePath));
-      storedFileName = r.storedFileName;
-      fileSize = r.fileSize;
-    } else if (staged.length === 1 && !staged[0].relativePath.toLowerCase().endsWith('.zip') && analyzed.fileCount >= 1 && analyzed.fromZip === false) {
-      // 单文件但被还原为单文件：直接存原文件即可（与上一分支一致，保留以便语义清晰）
+    if (staged.length === 1) {
+      // 单个 zip 或单个 Mod 文件：原样存储（下载即原文件）
       const r = persistOriginalFile(modId, staged[0].absPath, path.basename(staged[0].relativePath));
       storedFileName = r.storedFileName;
       fileSize = r.fileSize;
     } else {
       // 文件夹多文件：打包为 archive.zip 供一键下载
-      if (analyzed.fromZip) {
-        // zip 内多文件但 staged 只有 1 个 zip：沿用原 zip（上面已处理），这里是兜底
-        const r = persistOriginalFile(modId, staged[0].absPath, path.basename(staged[0].relativePath));
-        storedFileName = r.storedFileName;
-        fileSize = r.fileSize;
-      } else {
-        const r = persistFolderAsZip(modId, analyzed.workDir);
-        storedFileName = r.storedFileName;
-        fileSize = r.fileSize;
-      }
-    }
-
-    // 实际大小二次配额校验
-    if (used.bytes + fileSize > limit) {
-      removeModStorage(modId);
-      res.status(413).json({ error: '空间不足，打包后体积超出配额' });
-      return;
+      const r = persistFolderAsZip(modId, analyzed.workDir);
+      storedFileName = r.storedFileName;
+      fileSize = r.fileSize;
     }
 
     const previewImages = persistPreviews(modId, analyzed.workDir, analyzed.previewImages);
@@ -264,12 +239,38 @@ router.post(
       createdAt: now,
       updatedAt: now,
     };
-    await db.mutate((d) => {
+    // 原子复核：去重 + 配额 + 写入在同一个同步 mutate 内完成，
+    // 避免并发上传绕过预检查（预检查仅用于提前给出友好错误）
+    const outcome = await db.mutate((d): { kind: 'ok' } | { kind: 'dup'; id: string; title: string } | { kind: 'quota' } => {
+      const currentUsage = usageOf(d, billing, userId, teamId);
+      if (currentUsage.bytes + fileSize > limit) return { kind: 'quota' };
+      if (incomingIds.length > 0) {
+        const existing = d.mods.find((m) => {
+          const sameBilling = teamId ? m.teamId === teamId : !m.teamId && m.ownerId === userId;
+          if (!sameBilling) return false;
+          const existingIds = m.subMods.map((s) => (s.uniqueId || '').toLowerCase()).filter(Boolean);
+          return incomingIds.some((sid) => existingIds.includes(sid));
+        });
+        if (existing) return { kind: 'dup', id: existing.id, title: existing.title };
+      }
       d.mods.push(record);
+      return { kind: 'ok' };
     });
+    if (outcome.kind === 'quota') {
+      removeModStorage(modId);
+      res.status(413).json({ error: '空间不足，打包后体积超出配额' });
+      return;
+    }
+    if (outcome.kind === 'dup') {
+      removeModStorage(modId);
+      res.status(409).json({ error: `该 Mod 已存在（${outcome.title}），请勿重复上传`, existingId: outcome.id });
+      return;
+    }
     res.status(201).json(record);
   } catch (e) {
-    res.status(500).json({ error: e instanceof Error ? e.message : '上传失败' });
+    // 记完整日志供排查，客户端只给通用文案（避免泄露内部路径）
+    console.error('[upload]', e);
+    res.status(500).json({ error: '上传失败，请稍后重试' });
   } finally {
     // 清理临时文件（上传 tmp + 分析 workRoot）
     try {
@@ -285,7 +286,8 @@ router.post(
       }
     }
   }
-});
+  }),
+);
 
 /** 公开市场列表 */
 router.get('/', authOptional, (req, res) => {
@@ -370,7 +372,10 @@ router.get('/:id', authOptional, (req, res) => {
 });
 
 /** 编辑 Mod 元信息 */
-router.patch('/:id', authRequired, async (req, res) => {
+router.patch(
+  '/:id',
+  authRequired,
+  asyncHandler(async (req, res) => {
   const parsed = updateModSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? '参数错误' });
@@ -423,10 +428,14 @@ router.patch('/:id', authRequired, async (req, res) => {
   });
   const updated = getDb(dbFile()).read().mods.find((m) => m.id === req.params.id);
   res.json(updated);
-});
+  }),
+);
 
 /** 删除 Mod */
-router.delete('/:id', authRequired, async (req, res) => {
+router.delete(
+  '/:id',
+  authRequired,
+  asyncHandler(async (req, res) => {
   const db = getDb(dbFile());
   const mod = db.read().mods.find((m) => m.id === req.params.id);
   if (!mod) {
@@ -450,10 +459,14 @@ router.delete('/:id', authRequired, async (req, res) => {
     /* ignore */
   }
   res.json({ ok: true });
-});
+  }),
+);
 
 /** 下载 Mod 文件 */
-router.get('/:id/download', authOptional, async (req, res) => {
+router.get(
+  '/:id/download',
+  authOptional,
+  asyncHandler(async (req, res) => {
   const db = getDb(dbFile());
   const mod = db.read().mods.find((m) => m.id === req.params.id);
   if (!mod) {
@@ -478,8 +491,16 @@ router.get('/:id/download', authOptional, async (req, res) => {
   res.setHeader('Content-Type', mime.lookup(mod.fileName) || 'application/octet-stream');
   res.setHeader('Content-Disposition', contentDisposition(mod.fileName));
   res.setHeader('Content-Length', String(fs.statSync(abs).size));
-  fs.createReadStream(abs).pipe(res);
-});
+  const stream = fs.createReadStream(abs);
+  // 读取中出错（如文件被并发删除）不能让 'error' 事件裸奔，否则会变成进程级异常
+  stream.on('error', (err) => {
+    console.error('[download] stream error', err);
+    if (!res.headersSent) res.status(500).json({ error: '读取文件失败' });
+    else res.destroy();
+  });
+  stream.pipe(res);
+  }),
+);
 
 /** 预览图 */
 router.get('/:id/preview/:file', authOptional, (req, res) => {
@@ -506,7 +527,13 @@ router.get('/:id/preview/:file', authOptional, (req, res) => {
   }
   res.setHeader('Content-Type', mime.lookup(abs) || 'image/png');
   res.setHeader('Cache-Control', 'public, max-age=86400');
-  fs.createReadStream(abs).pipe(res);
+  const stream = fs.createReadStream(abs);
+  stream.on('error', (err) => {
+    console.error('[preview] stream error', err);
+    if (!res.headersSent) res.status(500).json({ error: '读取预览图失败' });
+    else res.destroy();
+  });
+  stream.pipe(res);
 });
 
 export default router;

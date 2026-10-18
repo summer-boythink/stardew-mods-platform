@@ -184,16 +184,23 @@ export function TeamPage(): JSX.Element {
                 <p className="muted">{detail.description || '暂无介绍'}</p>
                 <h4>成员（{detail.members.length}）</h4>
                 <ul className="member-list">
-                  {detail.members.map((m) => (
-                    <li key={m.userId}>
-                      <span>
-                        {m.role === 'owner' ? '👑' : '🧑‍🌾'} {m.username}
-                      </span>
-                      <button className="link-btn" onClick={() => void leaveOrRemove(m.userId, m.username)}>
-                        {m.userId === user.id ? '退出' : detail.ownerId === user.id ? '移除' : ''}
-                      </button>
-                    </li>
-                  ))}
+                  {detail.members.map((m) => {
+                    // 创建者不可被移除/退出（需先解散团队），因此不渲染按钮，避免死操作
+                    const canOperate =
+                      m.role !== 'owner' && (m.userId === user.id || detail.ownerId === user.id);
+                    return (
+                      <li key={m.userId}>
+                        <span>
+                          {m.role === 'owner' ? '👑' : '🧑‍🌾'} {m.username}
+                        </span>
+                        {canOperate && (
+                          <button className="link-btn" onClick={() => void leaveOrRemove(m.userId, m.username)}>
+                            {m.userId === user.id ? '退出' : '移除'}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
                 <div className="form-grid">
                   <label>

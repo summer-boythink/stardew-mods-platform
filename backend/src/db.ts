@@ -70,9 +70,15 @@ export class JsonDb {
     return this.data;
   }
 
-  async mutate(fn: (data: DatabaseShape) => void): Promise<void> {
-    fn(this.data);
+  /**
+   * 原子变更：fn 同步执行（JS 单线程内不可被打断），
+   * 因此「检查 + 写入」必须放在同一个 fn 里，避免并发竞态（如重复注册、超额上传）。
+   * 返回值透传，调用方可用它携带校验结果。
+   */
+  async mutate<T>(fn: (data: DatabaseShape) => T): Promise<T> {
+    const result = fn(this.data);
     await this.persist();
+    return result;
   }
 }
 

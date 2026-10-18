@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { apiDeleteMod, apiGetMod, apiUpdateMod, modDownloadUrl, modPreviewUrl } from '../api/client';
+import { apiDeleteMod, apiGetMod, apiUpdateMod, modPreviewUrl } from '../api/client';
+import { AuthedImage } from '../components/AuthedImage';
+import { DownloadButton } from '../components/DownloadButton';
 import { IButton, ICard } from '../components/island';
 import { useAuth } from '../context/AuthContext';
 import { MOD_CATEGORIES, formatBytes, formatDate, type FileTreeNode, type ModRecord } from '../types';
@@ -125,7 +127,10 @@ export function ModDetailPage(): JSX.Element {
             </div>
           </div>
           <div className="detail-actions">
-            <a className="btn btn-primary" href={modDownloadUrl(mod.id)}>⬇ 下载{mod.fileName.toLowerCase().endsWith('.zip') ? ' .zip' : ''}</a>
+            <DownloadButton
+              mod={mod}
+              label={`⬇ 下载${mod.fileName.toLowerCase().endsWith('.zip') ? ' .zip' : ''}`}
+            />
             {showEdit && !editing && <IButton onClick={() => setEditing(true)}>编辑信息</IButton>}
             {showEdit && <IButton islandType="ghost" onClick={() => void remove()}>删除</IButton>}
           </div>
@@ -150,11 +155,16 @@ export function ModDetailPage(): JSX.Element {
         )}
         {mod.previewImages.length > 0 && (
           <div className="preview-row">
-            {mod.previewImages.map((p) => (
-              <a key={p} href={modPreviewUrl(mod.id, p)} target="_blank" rel="noreferrer">
-                <img src={modPreviewUrl(mod.id, p)} alt="Mod 预览图" loading="lazy" />
-              </a>
-            ))}
+            {mod.previewImages.map((p) =>
+              // 公开 Mod 可以点开原图；私有/团队 Mod 的直链不带 Token 会 403，故不加外链
+              mod.visibility === 'public' ? (
+                <a key={p} href={modPreviewUrl(mod.id, p)} target="_blank" rel="noreferrer">
+                  <AuthedImage mod={mod} file={p} alt="Mod 预览图" />
+                </a>
+              ) : (
+                <AuthedImage key={p} mod={mod} file={p} alt="Mod 预览图" />
+              ),
+            )}
           </div>
         )}
       </ICard>
