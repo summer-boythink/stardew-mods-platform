@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ApiError, apiMyTeams, apiQuota, apiUploadMod } from '../api/client';
+import { ApiError, apiHealth, apiMyTeams, apiQuota, apiUploadMod } from '../api/client';
 import { UploadDropzone, type PickedFiles } from '../components/UploadDropzone';
 import { IButton, ICard } from '../components/island';
 import { useAuth } from '../context/AuthContext';
-import { MOD_CATEGORIES, type ModRecord, type QuotaInfo, type TeamRecord } from '../types';
+import { MOD_CATEGORIES, formatBytes, type ModRecord, type QuotaInfo, type TeamRecord } from '../types';
 
 export function UploadPage(): JSX.Element {
   const { user } = useAuth();
@@ -58,6 +58,19 @@ export function UploadPage(): JSX.Element {
     }
     if (scope === 'team' && !teamId) {
       setError('团队存储需要先选择一个团队');
+      return;
+    }
+    // 体积前置校验：避免白传几百 MB 才被后端拒绝
+    const totalBytes = picked.files.reduce((s, f) => s + f.size, 0);
+    if (quota && totalBytes > quota.serverLimits.maxUploadBytes) {
+      setError(`所选内容共 ${formatBytes(totalBytes)}，超过单次上传上限 ${quota.serverLimits.maxUploadHuman}，请拆分成多次上传`);
+      return;
+    }
+    // 上传前探活：后端未启动时立刻给出明确提示，而不是传一半才报网络错误
+    try {
+      await apiHealth();
+    } catch {
+      setError('无法连接后端服务，上传已取消。请先启动后端（默认 http://localhost:4000）再重试');
       return;
     }
     setUploading(true);

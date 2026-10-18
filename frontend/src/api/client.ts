@@ -66,10 +66,21 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(withBase(path), { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(withBase(path), { ...init, headers });
+  } catch {
+    // fetch 在网络层失败（后端未启动、断网、代理断开等），给出可自诊断的提示
+    throw new ApiError(0, '无法连接后端服务，请确认后端已启动（网络错误）');
+  }
   if (!res.ok) throw await parseError(res);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** 后端探活：上传/登录前可用它提前发现“后端没启动” */
+export async function apiHealth(): Promise<{ ok: boolean }> {
+  return request('/api/health');
 }
 
 /* ---------- Auth ---------- */
@@ -201,8 +212,8 @@ export function apiUploadMod(opts: UploadOptions): Promise<ModRecord> {
         reject(new ApiError(xhr.status, `上传失败（${xhr.status}）`));
       }
     };
-    xhr.onerror = () => reject(new ApiError(0, '网络错误，上传失败'));
-    xhr.ontimeout = () => reject(new ApiError(0, '上传超时，请重试'));
+    xhr.onerror = () => reject(new ApiError(0, '网络连接失败：上传被中断。请确认后端服务已启动、网络稳定后重试'));
+    xhr.ontimeout = () => reject(new ApiError(0, '上传超时，请检查网络后重试'));
     xhr.send(fd);
   });
 }
