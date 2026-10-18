@@ -1,0 +1,22 @@
+{
+  "name": "stardew-mods-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "星露谷 Mod 交流平台 - 支持电脑/手机端，自动整理 Mod，个人/团队/公开存储",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "install:all": "bun install",
+    "dev:backend": "bun --filter backend dev",
+    "dev:frontend": "bun --filter frontend dev",
+    "dev": "bun run --filter backend dev & bun run --filter frontend dev",
+    "build": "bun run --filter @stardew/shared build && bun run --filter backend build && bun run --filter frontend build",
+    "build:backend": "bun run --filter backend build",
+    "build:frontend": "bun run --filter frontend build",
+    "test:backend": "bun run --filter backend test",
+    "typecheck": "bun run --filter @stardew/shared typecheck && bun run --filter backend typecheck && bun run --filter frontend typecheck"
+  }
+}
