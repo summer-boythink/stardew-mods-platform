@@ -146,3 +146,18 @@ export function formatDate(iso: string): string {
     return iso;
   }
 }
+
+/** Short, date-only form used on cards and compact lists. */
+export function formatDateShort(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}

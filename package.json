@@ -6,7 +6,8 @@
   "workspaces": [
     "shared",
     "backend",
-    "frontend"
+    "frontend",
+    "packages/pixelvale-ui"
   ],
   "scripts": {
     "install:all": "bun install",

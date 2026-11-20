@@ -3,11 +3,13 @@
 支持 **电脑 / 手机端** 访问的星露谷 Mod 分享社区：玩家可以上传**包含多个 Mod 的文件夹、`.zip` 压缩包或单个 Mod 文件**，平台自动解析 `manifest.json`、推断分类、生成文件树与预览，并提供**个人存储空间（2GB）/ 团队存储空间（10GB）/ 完全公开分享**。
 
 - 技术栈：**React 18 + TypeScript + Vite**（前端） / **Bun + Express + TypeScript**（后端）
-- UI：[`animal-island-ui`](https://github.com/guokaigdg/animal-island-ui/tree/main) 可爱岛屿风格 + 自研响应式布局（手机优先，汉堡菜单、单列卡片、触屏友好的上传器）
+- UI：**[Pixelvale UI](https://github.com/summer-boythink/pixelvale-ui)** 星露谷像素风（木框 / 羊皮纸 / 金色描边 / 像素字体）+ 自研响应式布局；组件源码以 workspace 形式内置，离线可构建
+- 界面支持 **白天 / 秋日 / 夜晚** 三套主题、界面音效开关、移动端抽屉导航、像素风确认弹窗与 Toast
+- 组件演示站：<https://summer-boythink.github.io/pixelvale-ui/>
 - 后端与前端在**同一个目录**（本文件夹 Monorepo），开箱即用
 - 数据存储：**SQLite（bun:sqlite，WAL + 事务）** + 文件系统存 Mod 本体，**无需安装 MySQL / Postgres / Docker**，个人服务器 / NAS / 旧电脑都能跑；首次启动会自动把旧版 `db.json` 迁移进 SQLite 并备份
 
-> 已验证：`tsc` 类型检查（前/后端/共享）全过、后端 24 个单测全过、36 项端到端链路（注册→上传→整理→下载→去重→覆盖更新→拆分发布→多zip→团队→登录锁定）全过、前后端生产构建全过。
+> 已验证：`tsc` 类型检查（前/后端/共享）全过、后端与前端单测全过、36 项端到端链路（注册→上传→整理→下载→去重→覆盖更新→拆分发布→多zip→团队→登录锁定）全过、前后端生产构建全过。
 
 ---
 
@@ -16,6 +18,7 @@
 ```
 stardew-mods-platform/
 ├── package.json            # Monorepo 根（bun workspaces）
+├── packages/pixelvale-ui/  # @pixelvale/ui 源码（同步自 pixelvale-ui 仓库）
 ├── shared/src/index.ts     # 前后端共享类型：Mod/团队/配额/分类推断
 ├── backend/
 │   ├── src/
@@ -38,13 +41,22 @@ stardew-mods-platform/
     │   ├── main.tsx / App.tsx / index.css   # 入口、路由、田园响应式样式
     │   ├── api/client.ts   # 类型化 API 封装（含上传进度/覆盖/拆分参数）
     │   ├── context/AuthContext.tsx
-    │   ├── components/     # island（可爱UI封装）/ Layout / ModCard / QuotaBar / UploadDropzone / DownloadButton / AuthedImage
+    │   ├── components/     # Layout / Feedback（确认弹窗+Toast）/ ModCard / QuotaBar / UploadDropzone / DownloadButton / AuthedImage / PageHeading / TextArea
     │   ├── utils/mergeSplit.ts              # 拆分上传两轮结果合并（确认覆盖后）
     │   └── pages/          # Home（广场）/ Upload / MyMods / Team / ModDetail / Auth
     └── vite.config.ts      # /api 代理到后端 :4000
 ```
 
 ---
+
+## UI：PixelVale UI
+
+- 入口在 `frontend/src/App.tsx`：`PixelValeProvider`（`locale="zh-CN"`）+ `ToastProvider` + 确认弹窗宿主
+- 页面使用 `Panel / Button / TextField / Select / Tabs / Checkbox / TagInput / Steps / ProgressBar / Pagination / TreeView / Alert / EmptyState / Skeleton` 等组件
+- 主题通过 `data-pv-theme` 与 CSS 变量切换；像素字体 `Fusion Pixel` 与 `Pixelify Sans` 本地打包，不请求外部字体
+- 上传覆盖、删除、公开、退出团队等操作统一使用像素风 `Dialog`，替代原生 `window.confirm`；成功/失败反馈使用 `Toast`
+- 组件库源码位于 `packages/pixelvale-ui`，与上游 [`pixelvale-ui`](https://github.com/summer-boythink/pixelvale-ui) 的 `packages/ui/src` 同步；更新时复制源码目录并运行 `bun install` 即可，无需发布 npm 包
+- 在线组件演示：<https://summer-boythink.github.io/pixelvale-ui/>
 
 ## 快速启动（本地开发）
 
@@ -53,7 +65,7 @@ stardew-mods-platform/
 ```bash
 cd stardew-mods-platform
 
-# 1. 安装依赖（根目录一次装完三个包）
+# 1. 安装依赖（根目录一次装完全部 workspace）
 bun install
 
 # 2. 启动后端（:4000）
@@ -162,12 +174,13 @@ location / { root /srv/stardew/frontend/dist; try_files $uri /index.html; }
 
 ### 4. 前端页面（全部适配手机）
 
-- `/` 广场：搜索（Mod名/作者/UniqueID/标签多关键词）、分类 chips、最新/最热/最大排序、分页；
-- `/upload` 上传：三形态选择器（含多 zip 一次选）→ 空间/可见性/拆分发布 → 信息补充（留空即自动识别）→ 进度条 → 成功跳详情；重复时弹窗询问覆盖；拆分结果逐条展示（新建/覆盖/跳过原因）；
-- `/mine` 我的空间：配额条、搜索、公开/取消公开、下载、删除；
-- `/teams` 团队：创建、成员邀请/移除/退出、解散、团队 Mod 列表；
-- `/mods/:id` 详情：子 Mod 清单（含 UniqueID/版本）、文件树、预览图、下载计数、上传者可编辑/删除；
-- `/auth` 登录/注册。
+- `/` 广场：像素 Hero、搜索（Mod名/作者/UniqueID/标签多关键词）、分类筛选、最新/最热/最大排序、骨架屏、分页；
+- `/upload` 上传：步骤条 + 三形态选择器（含多 zip 一次选）→ 空间/可见性/拆分发布 → 信息补充（标签输入、留空自动识别）→ 进度条 → 成功提示；重复时像素风确认弹窗询问覆盖；拆分结果逐条展示（新建/覆盖/跳过原因）；
+- `/mine` 我的空间：配额进度、搜索、公开/取消公开、下载、删除、分页；
+- `/teams` 团队：创建、成员邀请/移除/退出、解散、团队 Mod 列表与分页；
+- `/mods/:id` 详情：子 Mod 清单（含 UniqueID/版本）、可展开文件树、预览图、下载计数、上传者可编辑/删除；
+- `/auth` 登录/注册：标签页切换、图形验证码、锁定倒计时提示；
+- 全局：白天 / 秋日 / 夜晚主题、界面音效开关、移动端抽屉导航、Toast 通知、焦点陷阱与键盘可用的弹窗。
 
 ---
 

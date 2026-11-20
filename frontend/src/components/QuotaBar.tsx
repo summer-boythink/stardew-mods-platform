@@ -1,36 +1,97 @@
+import { Badge, PixelIcon, PixelSprite, ProgressBar } from '@pixelvale/ui';
 import type { QuotaInfo } from '../types';
 
-function Bar({ used, limit }: { used: number; limit: number }): JSX.Element {
-  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+interface QuotaCardProps {
+  title: string;
+  subtitle: string;
+  usedBytes: number;
+  limitBytes: number;
+  usedHuman: string;
+  limitHuman: string;
+  modCount: number;
+  icon: 'personal' | 'team';
+}
+
+function QuotaCard({
+  title,
+  subtitle,
+  usedBytes,
+  limitBytes,
+  usedHuman,
+  limitHuman,
+  modCount,
+  icon,
+}: QuotaCardProps): JSX.Element {
+  const pct = limitBytes > 0 ? Math.min(100, Math.round((usedBytes / limitBytes) * 100)) : 0;
   return (
-    <div className="quota-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-      <div className="quota-fill" style={{ width: `${pct}%` }} />
+    <div className="quota-card">
+      <div className="quota-card__head">
+        <span className="quota-card__icon" aria-hidden="true">
+          {icon === 'personal' ? (
+            <PixelSprite name="parsnip" size={24} />
+          ) : (
+            <PixelIcon name="heart" size={18} />
+          )}
+        </span>
+        <div className="quota-card__title">
+          <strong>{title}</strong>
+          <span>{subtitle}</span>
+        </div>
+        <Badge variant={pct >= 90 ? 'danger' : pct >= 70 ? 'warning' : 'success'}>
+          {pct}%
+        </Badge>
+      </div>
+      <ProgressBar
+        value={usedBytes}
+        max={limitBytes || 1}
+        variant={pct >= 90 ? 'health' : 'energy'}
+        label={`${usedHuman} / ${limitHuman}`}
+        aria-label={`${title}已使用 ${pct}%`}
+      />
+      <p className="quota-card__hint">
+        {modCount} 个 Mod · 剩余 {formatRemaining(limitBytes - usedBytes)}
+      </p>
     </div>
   );
+}
+
+function formatRemaining(bytes: number): string {
+  const safe = Math.max(0, bytes);
+  if (safe >= 1024 * 1024 * 1024) return `${(safe / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (safe >= 1024 * 1024) return `${(safe / (1024 * 1024)).toFixed(0)} MB`;
+  if (safe >= 1024) return `${(safe / 1024).toFixed(0)} KB`;
+  return `${safe} B`;
 }
 
 export function QuotaBar({ quota }: { quota: QuotaInfo }): JSX.Element {
   return (
     <div className="quota-grid">
-      <div className="quota-card">
-        <div className="quota-title">🏠 个人空间</div>
-        <div className="quota-num">
-          {quota.personal.usedHuman} / {quota.personal.limitHuman} · {quota.personal.modCount} 个 Mod
-        </div>
-        <Bar used={quota.personal.usedBytes} limit={quota.personal.limitBytes} />
-      </div>
-      {quota.teams.map((t) => (
-        <div className="quota-card" key={t.teamId}>
-          <div className="quota-title">
-            👥 {t.teamName}（{t.role === 'owner' ? '创建者' : '成员'}）
-          </div>
-          <div className="quota-num">
-            {t.usedHuman} / {t.limitHuman} · {t.modCount} 个 Mod
-          </div>
-          <Bar used={t.usedBytes} limit={t.limitBytes} />
-        </div>
+      <QuotaCard
+        title="个人空间"
+        subtitle="默认私有，可单独公开"
+        icon="personal"
+        usedBytes={quota.personal.usedBytes}
+        limitBytes={quota.personal.limitBytes}
+        usedHuman={quota.personal.usedHuman}
+        limitHuman={quota.personal.limitHuman}
+        modCount={quota.personal.modCount}
+      />
+      {quota.teams.map((team) => (
+        <QuotaCard
+          key={team.teamId}
+          title={team.teamName}
+          subtitle={team.role === 'owner' ? '我创建的团队' : '我加入的团队'}
+          icon="team"
+          usedBytes={team.usedBytes}
+          limitBytes={team.limitBytes}
+          usedHuman={team.usedHuman}
+          limitHuman={team.limitHuman}
+          modCount={team.modCount}
+        />
       ))}
-      <div className="quota-hint">单次上传上限 {quota.serverLimits.maxUploadHuman} · 公开 Mod 仍计入上传者所在空间配额</div>
+      <p className="quota-note">
+        单次上传上限 {quota.serverLimits.maxUploadHuman} · 公开 Mod 仍计入上传者所在空间的配额
+      </p>
     </div>
   );
 }

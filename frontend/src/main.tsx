@@ -1,6 +1,10 @@
+import '@fontsource/pixelify-sans/latin-400.css';
+import '@fontsource/pixelify-sans/latin-600.css';
+import '@fontsource/pixelify-sans/latin-700.css';
+import '@fontsource/fusion-pixel-12px-proportional-sc/400.css';
+import '@pixelvale/ui/style.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import 'animal-island-ui/style';
 import { App } from './App';
 import './index.css';
 

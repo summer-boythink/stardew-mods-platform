@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { fetchAuthedObjectUrl, modPreviewUrl } from '../api/client';
 import type { ModRecord } from '../types';
 
@@ -12,31 +12,36 @@ export function AuthedImage({
   file,
   alt,
   className,
+  fallback = null,
 }: {
   mod: ModRecord;
   file: string;
   alt: string;
   className?: string;
+  fallback?: ReactNode;
 }): JSX.Element | null {
   const url = modPreviewUrl(mod.id, file);
   const isPublic = mod.visibility === 'public';
   const [src, setSrc] = useState(isPublic ? url : '');
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    setFailed(false);
     if (isPublic) {
       setSrc(url);
       return () => undefined;
     }
     let cancelled = false;
     let objectUrl = '';
+    setSrc('');
     fetchAuthedObjectUrl(url)
-      .then((u) => {
+      .then((nextUrl) => {
         if (cancelled) {
-          URL.revokeObjectURL(u);
+          URL.revokeObjectURL(nextUrl);
           return;
         }
-        objectUrl = u;
-        setSrc(u);
+        objectUrl = nextUrl;
+        setSrc(nextUrl);
       })
       .catch(() => {
         if (!cancelled) setSrc('');
@@ -47,6 +52,14 @@ export function AuthedImage({
     };
   }, [url, isPublic]);
 
-  if (!src) return null;
-  return <img src={src} alt={alt} className={className} loading="lazy" />;
+  if (!src || failed) return <>{fallback}</>;
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
 }
