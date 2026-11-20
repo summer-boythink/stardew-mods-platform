@@ -3,7 +3,7 @@ import { Badge } from '@pixelvale/ui';
 import { Link } from 'react-router-dom';
 import { modPreviewUrl } from '../api/client';
 import type { ModRecord } from '../types';
-import { CategoryBadge, ModFallbackArt, ModMeta } from './ModBits';
+import { CategoryBadge, ModFallbackArt, ModMeta, SourceBadge } from './ModBits';
 
 export function ModCard({ mod }: { mod: ModRecord }): JSX.Element {
   const [coverFailed, setCoverFailed] = useState(false);
@@ -48,6 +48,11 @@ export function ModCard({ mod }: { mod: ModRecord }): JSX.Element {
             {mod.tags.length > 3 ? (
               <span className="mod-card__tag-more">+{mod.tags.length - 3}</span>
             ) : null}
+            <SourceBadge source={mod.source} link={false} />
+          </div>
+        ) : mod.source ? (
+          <div className="mod-card__tags">
+            <SourceBadge source={mod.source} link={false} />
           </div>
         ) : null}
 

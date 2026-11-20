@@ -1,5 +1,13 @@
 import { Avatar, Badge, PixelIcon, PixelSprite, type BadgeVariant, type PixelSpriteName } from '@pixelvale/ui';
-import { formatBytes, formatDateShort, type ModCategory, type ModRecord, type ModVisibility } from '../types';
+import {
+  formatBytes,
+  formatDateShort,
+  type ModCategory,
+  type ModRecord,
+  type ModSource,
+  type ModSourceProvider,
+  type ModVisibility,
+} from '../types';
 
 const CATEGORY_VARIANT: Record<ModCategory, BadgeVariant> = {
   SMAPI框架: 'info',
@@ -114,5 +122,39 @@ export function ModFallbackArt({
       <PixelSprite name={categorySprite(category)} size={compact ? 38 : 66} />
       <span className="mod-cover__fallback-label">{category}</span>
     </span>
+  );
+}
+
+
+const SOURCE_META: Record<ModSourceProvider, { label: string; variant: BadgeVariant }> = {
+  nexus: { label: 'Nexus Mods', variant: 'warning' },
+  curseforge: { label: 'CurseForge', variant: 'info' },
+  moddrop: { label: 'ModDrop', variant: 'success' },
+};
+
+/** Attribution link for mods imported through an official provider API. */
+export function SourceBadge({
+  source,
+  link = true,
+}: {
+  source?: ModSource | null;
+  link?: boolean;
+}): JSX.Element | null {
+  if (!source) return null;
+  const meta = SOURCE_META[source.provider] ?? { label: source.provider, variant: 'default' as BadgeVariant };
+  const badge = <Badge variant={meta.variant}>{meta.label}</Badge>;
+  const href = /^https?:\/\//i.test(source.url) ? source.url : null;
+  if (!link || !href) return badge;
+  return (
+    <a
+      className="source-badge-link"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={`在原站查看：${meta.label}`}
+    >
+      {badge}
+      <PixelIcon name="arrow-right" size={12} className="source-badge-link__arrow" />
+    </a>
   );
 }

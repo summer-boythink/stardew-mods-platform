@@ -176,6 +176,74 @@ export async function apiGetMod(id: string): Promise<ModRecord> {
   return request(`/api/mods/${encodeURIComponent(id)}`);
 }
 
+/* ---------- Import from external mod sites ---------- */
+
+export type ImportProvider = 'nexus' | 'curseforge' | 'moddrop';
+
+export interface ImportProviderStatus {
+  provider: ImportProvider;
+  label: string;
+  supported: boolean;
+  configured: boolean;
+  hint: string;
+}
+
+export interface ImportPreview {
+  provider: ImportProvider;
+  sourceUrl: string;
+  modId: string;
+  fileId: string | null;
+  fileVersionId: string | null;
+  title: string;
+  author: string;
+  version: string;
+  description: string;
+  category: string | null;
+  tags: string[];
+  fileName: string;
+  fileSize: number;
+  imageUrl: string | null;
+  downloadable: boolean;
+  reason: string | null;
+}
+
+export async function apiImportProviders(): Promise<ImportProviderStatus[]> {
+  const data = await request<{ providers: ImportProviderStatus[] }>('/api/import/providers');
+  return Array.isArray(data.providers) ? data.providers : [];
+}
+
+export async function apiResolveImport(url: string): Promise<ImportPreview> {
+  const data = await request<{ preview: ImportPreview }>('/api/import/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+  return data.preview;
+}
+
+export interface ImportOptions {
+  url: string;
+  scope: 'personal' | 'team' | 'public';
+  teamId?: string;
+  visibility?: 'private' | 'team' | 'public';
+  title?: string;
+  description?: string;
+  category?: string;
+  tags?: string;
+  split?: boolean;
+  overwrite?: boolean;
+  overwriteIds?: string[];
+}
+
+/** Server-side import; the backend downloads through the official provider API. */
+export async function apiImportMod(opts: ImportOptions): Promise<UploadResult> {
+  return request<UploadResult>('/api/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  });
+}
+
 export interface UploadOptions {
   files: File[];
   scope: 'personal' | 'team' | 'public';

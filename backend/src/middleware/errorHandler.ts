@@ -1,4 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { HttpError } from '../utils/errors';
 
 /**
  * Express 4 不会自动捕获 async 处理器里抛出的异常（会导致未处理的 Promise 拒绝）。
@@ -46,6 +47,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   // express.json 解析失败
   if (err instanceof SyntaxError && 'body' in (err as unknown as Record<string, unknown>)) {
     res.status(400).json({ error: '请求体不是合法 JSON' });
+    return;
+  }
+
+  // 业务层显式抛出的 HTTP 错误（导入、上游 API 等）
+  if (err instanceof HttpError) {
+    res.status(err.status).json({ error: err.message, ...(err.extra ?? {}) });
     return;
   }
 

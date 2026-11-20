@@ -80,7 +80,18 @@ export interface FileTreeNode {
   children?: FileTreeNode[];
 }
 
-/** Mod 主记录（存 DB） */
+export type ModSourceProvider = 'nexus' | 'curseforge' | 'moddrop';
+
+/** 从外部 Mod 站导入时记录的来源信息（仅通过官方 API 获得） */
+export interface ModSource {
+  provider: ModSourceProvider;
+  /** 原始 Mod 页面（用于展示与署名） */
+  url: string;
+  modId: string;
+  fileId?: string | null;
+  fileVersionId?: string | null;
+}
+
 export interface ModRecord {
   id: string;
   slug: string;
@@ -103,6 +114,8 @@ export interface ModRecord {
   fileTree: FileTreeNode[];
   previewImages: string[];
   downloadCount: number;
+  /** 仅从外部站点导入时存在；手动上传为 null / undefined */
+  source?: ModSource | null;
   createdAt: string;
   updatedAt: string;
 }

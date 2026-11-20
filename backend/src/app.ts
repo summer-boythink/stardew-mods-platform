@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { config } from './config';
 import authRoutes from './routes/auth';
+import importRoutes from './routes/import';
 import modsRoutes from './routes/mods';
 import storageRoutes from './routes/storage';
 import teamsRoutes from './routes/teams';
@@ -29,7 +30,13 @@ export function createApp(): express.Express {
     standardHeaders: 'draft-7',
     message: { error: '验证码获取过于频繁，请稍后再试' },
   });
-  const uploadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 60, standardHeaders: 'draft-7' });
+  const uploadLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 60,
+    standardHeaders: 'draft-7',
+    // 自动导入会回环调用上传接口；这些内部请求不应共享公网 IP 的上传额度。
+    skip: (req) => req.headers['x-internal-import'] === config.importInternalToken,
+  });
   app.use('/api/auth', authLimiter);
   app.use('/api/auth/captcha', captchaLimiter);
   app.use('/api/mods/upload', uploadLimiter);
@@ -39,6 +46,7 @@ export function createApp(): express.Express {
   });
   app.use('/api/auth', authRoutes);
   app.use('/api/teams', teamsRoutes);
+  app.use('/api/import', importRoutes);
   app.use('/api/mods', modsRoutes);
   app.use('/api/storage', storageRoutes);
 

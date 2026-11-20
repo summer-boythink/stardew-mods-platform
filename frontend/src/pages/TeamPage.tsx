@@ -24,7 +24,7 @@ import {
 } from '../api/client';
 import { AppPagination } from '../components/AppPagination';
 import { useConfirm } from '../components/Feedback';
-import { CategoryBadge, ModMeta, VisibilityBadge } from '../components/ModBits';
+import { CategoryBadge, ModMeta, SourceBadge, VisibilityBadge } from '../components/ModBits';
 import { PageHeading } from '../components/PageHeading';
 import { TextArea } from '../components/TextArea';
 import { useAuth } from '../context/AuthContext';
@@ -531,6 +531,7 @@ export function TeamPage(): JSX.Element {
                           <div className="team-mod-row__badges">
                             <CategoryBadge category={mod.category} />
                             <VisibilityBadge visibility={mod.visibility} teamName={mod.teamName} />
+                            <SourceBadge source={mod.source} link={false} />
                           </div>
                         </div>
                         <ModMeta mod={mod} />

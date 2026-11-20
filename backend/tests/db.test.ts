@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Database } from 'bun:sqlite';
 import { AppDatabase } from '../src/db';
 import type { ModRecord, TeamRecord, UserRecord } from '../src/types';
 
@@ -153,6 +154,51 @@ describe('AppDatabase（SQLite 数据层）', () => {
     db.close();
   });
 
+
+  test('自动导入来源可写入并读回', () => {
+    const db = freshDb();
+    db.insertMod(makeMod({ id: 'm-source' }));
+    const updated = db.setModSource('m-source', {
+      provider: 'nexus',
+      url: 'https://www.nexusmods.com/stardewvalley/mods/2400',
+      modId: '2400',
+      fileVersionId: '160380',
+    });
+    expect(updated?.source).toMatchObject({
+      provider: 'nexus',
+      modId: '2400',
+      fileVersionId: '160380',
+    });
+    expect(db.getMod('m-source')?.source?.url).toContain('nexusmods.com');
+    const cleared = db.setModSource('m-source', null);
+    expect(cleared?.source).toBe(null);
+    db.close();
+  });
+
+  test('旧版 mods 表自动补齐 source 列', () => {
+    const file = path.join(os.tmpdir(), `stardew-old-${Date.now()}-${Math.random()}.db`);
+    const old = new Database(file, { create: true });
+    old.exec(`
+      CREATE TABLE mods (
+        id TEXT PRIMARY KEY, slug TEXT NOT NULL, title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '', category TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]', scope TEXT NOT NULL, visibility TEXT NOT NULL,
+        owner_id TEXT NOT NULL, owner_name TEXT NOT NULL, team_id TEXT, team_name TEXT,
+        sub_mods TEXT NOT NULL DEFAULT '[]', file_name TEXT NOT NULL,
+        file_size INTEGER NOT NULL DEFAULT 0, file_count INTEGER NOT NULL DEFAULT 0,
+        file_tree TEXT NOT NULL DEFAULT '[]', preview_images TEXT NOT NULL DEFAULT '[]',
+        download_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+    `);
+    old.close();
+    const db = new AppDatabase(file);
+    db.insertMod(makeMod({ id: 'old-row' }));
+    expect(db.getMod('old-row')?.source).toBe(null);
+    const columns = (db as unknown as { db: Database }).db.prepare('PRAGMA table_info(mods)').all() as Array<{ name: string }>;
+    expect(columns.some((column) => column.name === 'source_provider')).toBe(true);
+    db.close();
+    fs.rmSync(file, { force: true });
+  });
   test('事务：异常时整体回滚', () => {
     const db = freshDb();
     expect(() =>

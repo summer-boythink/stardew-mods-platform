@@ -21,6 +21,7 @@ import {
   CategoryBadge,
   ModFallbackArt,
   ModMeta,
+  SourceBadge,
   VisibilityBadge,
 } from '../components/ModBits';
 import { PageHeading } from '../components/PageHeading';
@@ -305,6 +306,7 @@ export function MyModsPage(): JSX.Element {
                       {mod.subMods.length > 1 ? (
                         <Badge variant="gold">合集 ×{mod.subMods.length}</Badge>
                       ) : null}
+                      <SourceBadge source={mod.source} />
                     </div>
                   </div>
 

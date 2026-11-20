@@ -1,6 +1,6 @@
 # 🌾 星露谷 Mod 交流平台（Stardew Mods Platform）
 
-支持 **电脑 / 手机端** 访问的星露谷 Mod 分享社区：玩家可以上传**包含多个 Mod 的文件夹、`.zip` 压缩包或单个 Mod 文件**，平台自动解析 `manifest.json`、推断分类、生成文件树与预览，并提供**个人存储空间（2GB）/ 团队存储空间（10GB）/ 完全公开分享**。
+支持 **电脑 / 手机端** 访问的星露谷 Mod 分享社区：玩家可以上传**包含多个 Mod 的文件夹、`.zip` 压缩包或单个 Mod 文件**，也可以直接粘贴 **Nexus Mods / CurseForge** 页面链接，由服务端通过官方 API 下载并自动整理；平台自动解析 `manifest.json`、推断分类、生成文件树与预览，并提供**个人存储空间（2GB）/ 团队存储空间（10GB）/ 完全公开分享**。
 
 - 技术栈：**React 18 + TypeScript + Vite**（前端） / **Bun + Express + TypeScript**（后端）
 - UI：**[Pixelvale UI](https://github.com/summer-boythink/pixelvale-ui)** 星露谷像素风（木框 / 羊皮纸 / 金色描边 / 像素字体）+ 自研响应式布局；组件源码以 workspace 形式内置，离线可构建
@@ -9,7 +9,7 @@
 - 后端与前端在**同一个目录**（本文件夹 Monorepo），开箱即用
 - 数据存储：**SQLite（bun:sqlite，WAL + 事务）** + 文件系统存 Mod 本体，**无需安装 MySQL / Postgres / Docker**，个人服务器 / NAS / 旧电脑都能跑；首次启动会自动把旧版 `db.json` 迁移进 SQLite 并备份
 
-> 已验证：`tsc` 类型检查（前/后端/共享）全过、后端与前端单测全过、36 项端到端链路（注册→上传→整理→下载→去重→覆盖更新→拆分发布→多zip→团队→登录锁定）全过、前后端生产构建全过。
+> 已验证：`tsc` 类型检查（前/后端/共享）全过、49 个单测全过、36 项端到端链路（注册→上传→整理→下载→去重→覆盖更新→拆分发布→多zip→团队→登录锁定）全过；Nexus/CurseForge 通过模拟官方 API 跑通「下载→自动整理→来源写回→重复覆盖→合集拆分」全链路；前后端生产构建全过。
 
 ---
 
@@ -28,12 +28,13 @@ stardew-mods-platform/
 │   │   ├── db.ts           # ★SQLite 数据层（bun:sqlite，WAL/事务/唯一约束/旧数据自动迁移）
 │   │   ├── types.ts        # 后端类型（与 shared 同步）
 │   │   ├── middleware/     # auth（Bearer JWT）/ errorHandler（asyncHandler）
-│   │   ├── routes/         # auth / mods / teams / storage
+│   │   ├── routes/         # auth / mods / teams / storage / import
 │   │   ├── services/
 │   │   │   ├── modParser.ts      # ★自动整理：zip安全解压/manifest解析/分类/文件树/多zip
+│   │   │   ├── modImport.ts      # ★Nexus/CurseForge 官方 API 解析与下载（ModDrop 手动兜底）
 │   │   │   └── storageService.ts # 文件落盘/打包/覆盖替换/预览图/删除清理
-│   │   └── utils/          # auth(jwt/bcrypt) / attempts(防爆破) / validation(zod) / text
-│   ├── tests/              # 单测：db / modParser / authGuards（bun test）
+│   │   └── utils/          # auth(jwt/bcrypt) / attempts(防爆破) / errors(HttpError) / validation(zod) / text
+│   ├── tests/              # 单测：db / modParser / authGuards / modImport（bun test）
 │   ├── data/               # 运行数据（app.db + storage/ + tmp/，git 不提交）
 │   └── .env.example
 └── frontend/
@@ -41,7 +42,7 @@ stardew-mods-platform/
     │   ├── main.tsx / App.tsx / index.css   # 入口、路由、田园响应式样式
     │   ├── api/client.ts   # 类型化 API 封装（含上传进度/覆盖/拆分参数）
     │   ├── context/AuthContext.tsx
-    │   ├── components/     # Layout / Feedback（确认弹窗+Toast）/ ModCard / QuotaBar / UploadDropzone / DownloadButton / AuthedImage / PageHeading / TextArea
+    │   ├── components/     # Layout / Feedback（确认弹窗+Toast）/ ModCard / QuotaBar / UploadDropzone / ImportFromSite / DownloadButton / AuthedImage / PageHeading / TextArea
     │   ├── utils/mergeSplit.ts              # 拆分上传两轮结果合并（确认覆盖后）
     │   └── pages/          # Home（广场）/ Upload / MyMods / Team / ModDetail / Auth
     └── vite.config.ts      # /api 代理到后端 :4000
@@ -136,6 +137,11 @@ location / { root /srv/stardew/frontend/dist; try_files $uri /index.html; }
 | `LOGIN_WINDOW_MS` | `3600000`（1 小时） | 登录防爆破窗口 |
 | `CAPTCHA_TTL_MS` | `300000`（5 分钟） | 图形验证码有效期 |
 | `TRUST_PROXY` | `0` | 反代后部署设为 `1` |
+| `NEXUS_API_KEY` | 空 | Nexus Mods v3 API Key；自动导入下载必需 |
+| `CURSEFORGE_API_KEY` | 空 | CurseForge API Key；自动导入必需 |
+| `CURSEFORGE_GAME_ID` | 自动发现 | 可选，Stardew Valley 的 CurseForge gameId |
+| `IMPORT_MAX_BYTES` | `524288000` | 自动导入单文件上限 |
+| `IMPORT_TIMEOUT_MS` | `300000` | 上游请求 / 下载超时 |
 
 ---
 
@@ -175,10 +181,10 @@ location / { root /srv/stardew/frontend/dist; try_files $uri /index.html; }
 ### 4. 前端页面（全部适配手机）
 
 - `/` 广场：像素 Hero、搜索（Mod名/作者/UniqueID/标签多关键词）、分类筛选、最新/最热/最大排序、骨架屏、分页；
-- `/upload` 上传：步骤条 + 三形态选择器（含多 zip 一次选）→ 空间/可见性/拆分发布 → 信息补充（标签输入、留空自动识别）→ 进度条 → 成功提示；重复时像素风确认弹窗询问覆盖；拆分结果逐条展示（新建/覆盖/跳过原因）；
+- `/upload` 上传：步骤条 + 「上传文件 / 从网站导入」双模式；三形态选择器（含多 zip 一次选）或 Nexus / CurseForge 链接 → 空间/可见性/拆分发布 → 信息补充（标签输入、留空自动识别）→ 进度/加载提示 → 成功提示；重复时像素风确认弹窗询问覆盖；拆分结果逐条展示（新建/覆盖/跳过原因）；
 - `/mine` 我的空间：配额进度、搜索、公开/取消公开、下载、删除、分页；
 - `/teams` 团队：创建、成员邀请/移除/退出、解散、团队 Mod 列表与分页；
-- `/mods/:id` 详情：子 Mod 清单（含 UniqueID/版本）、可展开文件树、预览图、下载计数、上传者可编辑/删除；
+- `/mods/:id` 详情：子 Mod 清单（含 UniqueID/版本）、可展开文件树、预览图、下载计数、来源站 Badge、上传者可编辑/删除；
 - `/auth` 登录/注册：标签页切换、图形验证码、锁定倒计时提示；
 - 全局：白天 / 秋日 / 夜晚主题、界面音效开关、移动端抽屉导航、Toast 通知、焦点陷阱与键盘可用的弹窗。
 
@@ -196,6 +202,36 @@ location / { root /srv/stardew/frontend/dist; try_files $uri /index.html; }
 - Toast 在手机上从顶部改为底部导航上方；确认弹窗按钮在窄屏保持并排且易点按
 
 ---
+
+## 从 Nexus / CurseForge 自动导入
+
+上传页的「从网站导入」支持粘贴以下链接：
+
+```text
+https://www.nexusmods.com/stardewvalley/mods/2400
+https://www.curseforge.com/stardewvalley/mods/content-patcher
+https://www.curseforge.com/projects/309243
+```
+
+流程：服务端解析链接 → 官方 API 读取元数据 → 申请最新主文件下载地址 → 下载到临时目录 → **复用现有上传整理流程**（查重/配额/覆盖/拆分/解析/打包/预览）→ 写入来源信息 → 清理临时文件。
+
+### 服务器配置
+
+| 变量 | 说明 |
+|---|---|
+| `NEXUS_API_KEY` | Nexus Mods v3 API Key；留空只能解析公开元数据，不能下载 |
+| `NEXUS_APPLICATION_NAME` / `NEXUS_APPLICATION_VERSION` | 请求头中的应用标识 |
+| `CURSEFORGE_API_KEY` | CurseForge for Studios API Key；留空无法解析 CurseForge |
+| `CURSEFORGE_GAME_ID` | 可选，Stardew Valley 的 CurseForge gameId；留空自动发现 |
+| `IMPORT_MAX_BYTES` | 自动导入单文件上限，默认 500MB |
+| `IMPORT_TIMEOUT_MS` | 上游 API / 下载超时，默认 5 分钟 |
+| `IMPORT_UPLOAD_TIMEOUT_MS` | 回环上传整理超时，默认 10 分钟 |
+
+- **Nexus**：公开部署前请按 [Nexus API AUP](https://help.nexusmods.com/article/114-api-acceptable-use-policy) 注册应用；下载是否允许取决于 API Key（Premium）或作者是否为文件开启直接下载。免费账号被拒绝时，页面会提示到原站手动下载。
+- **CurseForge**：需要申请 API Key；作者显式关闭第三方下载（`allowModDistribution=false`）时不会绕过，直接提示手动上传。
+- **ModDrop**：其公共 API 只提供元数据，**没有文件下载端点**。平台不会抓取网页或绕过客户端权限，会在导入面板提示打开原页面下载后使用「上传文件」。
+- **公开分享限制**：自动导入只允许存入个人或团队**私有空间**。公开到广场属于再分发，可能超出作者授权；如确有许可，请使用「上传文件」手动发布。后端也会拒绝带 `public` 的自动导入请求。
+- 来源信息会写入数据库并通过 `source` 字段展示为 Nexus / CurseForge / ModDrop Badge，点击可回到原 Mod 页面。
 
 ## API 一览（`GET /api/health` 存活探针）
 
@@ -223,6 +259,10 @@ DELETE /api/teams/:id/members/:userId (队长可移除他人；成员可自己�
 DELETE /api/teams/:id (仅创建者，级联删 Mod 文件)
 
 GET  /api/storage/quota (Bearer) → {personal, teams[], serverLimits}
+
+GET  /api/import/providers → { providers[] }  # 是否配置 API Key（不泄露密钥）
+POST /api/import/resolve (Bearer) { url } → { preview }
+POST /api/import (Bearer) { url, scope, teamId, visibility, split, title, description, category, tags, overwriteIds } → 同 /api/mods/upload 返回
 ```
 
 统一错误格式：`{ "error": "中文原因" }`（去重上传 409 会多带 `existingId` 与 `canOverwrite`）。

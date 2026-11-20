@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Database } from 'bun:sqlite';
-import type { ModRecord, TeamMemberRecord, TeamRecord, UserRecord } from './types';
+import type { ModRecord, ModSource, TeamMemberRecord, TeamRecord, UserRecord } from './types';
 
 /**
  * SQLite 数据访问层（bun:sqlite，同步 API + WAL + 事务）
@@ -59,6 +59,11 @@ interface ModRow {
   file_tree: string;
   preview_images: string;
   download_count: number;
+  source_provider: string | null;
+  source_url: string | null;
+  source_mod_id: string | null;
+  source_file_id: string | null;
+  source_file_version_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -118,6 +123,16 @@ function toMod(row: ModRow): ModRecord {
     fileTree: safeParse<ModRecord['fileTree']>(row.file_tree, []),
     previewImages: safeParse<string[]>(row.preview_images, []),
     downloadCount: row.download_count,
+    source:
+      row.source_provider && row.source_url && row.source_mod_id
+        ? {
+            provider: row.source_provider as ModSource['provider'],
+            url: row.source_url,
+            modId: row.source_mod_id,
+            fileId: row.source_file_id,
+            fileVersionId: row.source_file_version_id,
+          }
+        : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -235,6 +250,11 @@ export class AppDatabase {
         file_tree      TEXT NOT NULL DEFAULT '[]',
         preview_images TEXT NOT NULL DEFAULT '[]',
         download_count INTEGER NOT NULL DEFAULT 0,
+        source_provider TEXT,
+        source_url TEXT,
+        source_mod_id TEXT,
+        source_file_id TEXT,
+        source_file_version_id TEXT,
         created_at     TEXT NOT NULL,
         updated_at     TEXT NOT NULL
       );
@@ -243,6 +263,19 @@ export class AppDatabase {
       CREATE INDEX IF NOT EXISTS idx_mods_team       ON mods(team_id);
       CREATE INDEX IF NOT EXISTS idx_members_user    ON team_members(user_id);
     `);
+
+    // 老数据库补列（SQLite 的 CREATE TABLE IF NOT EXISTS 不会修改已有表）
+    const columns = new Set(
+      (this.db.prepare('PRAGMA table_info(mods)').all() as Array<{ name: string }>).map((c) => c.name),
+    );
+    const addColumn = (name: string, ddl: string): void => {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE mods ADD COLUMN ${ddl}`);
+    };
+    addColumn('source_provider', 'source_provider TEXT');
+    addColumn('source_url', 'source_url TEXT');
+    addColumn('source_mod_id', 'source_mod_id TEXT');
+    addColumn('source_file_id', 'source_file_id TEXT');
+    addColumn('source_file_version_id', 'source_file_version_id TEXT');
   }
 
   /**
@@ -392,6 +425,23 @@ export class AppDatabase {
   getMod(id: string): ModRecord | null {
     const row = this.stmt('SELECT * FROM mods WHERE id = ?').get(id) as ModRow | null;
     return row ? toMod(row) : null;
+  }
+
+  /** 自动导入完成后写入来源信息；手动上传的记录保持 null。 */
+  setModSource(id: string, source: ModSource | null): ModRecord | null {
+    this.stmt(
+      `UPDATE mods
+       SET source_provider = ?, source_url = ?, source_mod_id = ?, source_file_id = ?, source_file_version_id = ?
+       WHERE id = ?`,
+    ).run(
+      source?.provider ?? null,
+      source?.url ?? null,
+      source?.modId ?? null,
+      source?.fileId ?? null,
+      source?.fileVersionId ?? null,
+      id,
+    );
+    return this.getMod(id);
   }
 
   listMods(filter: ModListFilter = {}): ModRecord[] {
