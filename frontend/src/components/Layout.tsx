@@ -74,6 +74,44 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }): JSX.Element {
   );
 }
 
+/** Thumb-friendly primary navigation for phones; hidden above 900px. */
+function MobileTabBar(): JSX.Element {
+  const location = useLocation();
+  const detailPage = location.pathname.startsWith('/mods/');
+
+  return (
+    <nav className="mobile-tabbar" aria-label="底部快捷导航">
+      {NAV_ITEMS.map((item) => {
+        // A mod detail still belongs to the plaza tab.
+        const current = location.pathname === item.to;
+        const active = current || (item.to === '/' && detailPage);
+        return (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={`mobile-tabbar__link${active ? ' mobile-tabbar__link--active' : ''}`}
+            aria-current={current ? 'page' : undefined}
+            onClick={(event) => {
+              // Tapping the tab for the route you are already on is the usual
+              // "back to top" gesture. A detail page highlights 广场 but still
+              // needs the link to navigate home.
+              if (!current) return;
+              event.preventDefault();
+              const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+              window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+            }}
+          >
+            <span className="mobile-tabbar__icon" aria-hidden="true">
+              <PixelIcon name={item.icon} size={20} />
+            </span>
+            <span>{item.label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function Layout({
   children,
   theme,
@@ -90,9 +128,14 @@ export function Layout({
   const { enabled, setEnabled, play } = useSound();
   const { toast } = useToast();
   const themeMeta = THEME_META[theme];
+  // Auth is a focused task; the tab bar would only compete with the form.
+  const hideTabBar = location.pathname === '/auth';
 
   useEffect(() => {
     setMenuOpen(false);
+    // React Router keeps the previous scroll position by default; on phones
+    // that looks like the next page opened halfway down.
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [location.pathname]);
 
   const cycleTheme = (): void => {
@@ -119,7 +162,7 @@ export function Layout({
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${hideTabBar ? ' app-shell--no-tabbar' : ''}`}>
       <a className="skip-link" href="#main">
         跳到主要内容
       </a>
@@ -221,6 +264,8 @@ export function Layout({
           </p>
         </div>
       </footer>
+
+      {hideTabBar ? null : <MobileTabBar />}
 
       <Drawer
         open={menuOpen}

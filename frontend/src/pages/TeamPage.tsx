@@ -5,7 +5,6 @@ import {
   Badge,
   Button,
   EmptyState,
-  Pagination,
   Panel,
   PixelIcon,
   PixelSprite,
@@ -23,13 +22,14 @@ import {
   apiTeamDetail,
   apiTeamMods,
 } from '../api/client';
+import { AppPagination } from '../components/AppPagination';
 import { useConfirm } from '../components/Feedback';
 import { CategoryBadge, ModMeta, VisibilityBadge } from '../components/ModBits';
 import { PageHeading } from '../components/PageHeading';
 import { TextArea } from '../components/TextArea';
 import { useAuth } from '../context/AuthContext';
 import {
-  formatDate,
+  formatDateShort,
   type ModRecord,
   type PagedResult,
   type TeamDetail,
@@ -60,17 +60,23 @@ export function TeamPage(): JSX.Element {
   const [inviting, setInviting] = useState(false);
   const [busyMember, setBusyMember] = useState('');
 
+  const scrollToTop = (): void => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+  };
+
   const loadTeams = useCallback(async (preferredId?: string): Promise<void> => {
     setTeamsLoading(true);
     try {
       const list = await apiMyTeams();
-      setTeams(list);
+      const safeList = Array.isArray(list) ? list : [];
+      setTeams(safeList);
       setActiveId((current) => {
         const candidate = preferredId ?? current;
-        if (candidate && list.some((team) => team.id === candidate)) return candidate;
-        return list[0]?.id ?? '';
+        if (candidate && safeList.some((team) => team.id === candidate)) return candidate;
+        return safeList[0]?.id ?? '';
       });
-      if (list.length === 0) {
+      if (safeList.length === 0) {
         setDetail(null);
         setMods(null);
       }
@@ -105,8 +111,8 @@ export function TeamPage(): JSX.Element {
     Promise.all([apiTeamDetail(activeId), apiTeamMods(activeId, page, PAGE_SIZE)])
       .then(([teamDetail, teamMods]) => {
         if (cancelled) return;
-        setDetail(teamDetail);
-        setMods(teamMods);
+        setDetail(teamDetail && Array.isArray(teamDetail.members) ? teamDetail : null);
+        setMods(teamMods && Array.isArray(teamMods.items) ? teamMods : null);
       })
       .catch((e: Error) => {
         if (!cancelled) setErr(e.message);
@@ -162,6 +168,7 @@ export function TeamPage(): JSX.Element {
         title: `团队「${team.name}」创建成功`,
         description: '现在可以邀请成员，或上传团队 Mod。',
       });
+      scrollToTop();
     } catch (e) {
       toast({
         variant: 'error',
@@ -217,6 +224,7 @@ export function TeamPage(): JSX.Element {
         setPage(1);
         await loadTeams();
         toast({ variant: 'info', title: '已退出团队' });
+        scrollToTop();
       } else {
         const fresh = await apiTeamDetail(activeId);
         setDetail(fresh);
@@ -259,6 +267,7 @@ export function TeamPage(): JSX.Element {
       setMods(null);
       setPage(1);
       await loadTeams();
+      scrollToTop();
     } catch (e) {
       toast({
         variant: 'error',
@@ -345,6 +354,7 @@ export function TeamPage(): JSX.Element {
             subtitle="团队空间共享 10GB"
             icon={<PixelIcon name="sparkle" size={18} />}
             headingLevel={2}
+            className={`team-create-panel${teams.length > 0 ? ' team-create-panel--deferred' : ''}`}
           >
             <form
               className="form-stack"
@@ -418,15 +428,15 @@ export function TeamPage(): JSX.Element {
             <>
               <Panel
                 title={detail.name}
-                subtitle={`${detail.ownerName} 创建 · 创建于 ${formatDate(detail.createdAt)}`}
+                subtitle={`${detail.ownerName} 创建 · 创建于 ${formatDateShort(detail.createdAt)}`}
                 icon={<PixelSprite name="pumpkin" size={22} />}
                 headingLevel={2}
-                actions={<Badge variant="info">{detail.members.length} 位成员</Badge>}
+                actions={<Badge variant="info">{detail.members?.length ?? 0} 位成员</Badge>}
               >
                 <p className="team-desc">{detail.description || '这个团队还没有写下介绍。'}</p>
 
                 <ul className="member-list">
-                  {detail.members.map((member) => {
+                  {(detail.members ?? []).map((member) => {
                     const self = member.userId === user.id;
                     const canOperate =
                       member.role !== 'owner' && (self || detail.ownerId === user.id);
@@ -493,13 +503,14 @@ export function TeamPage(): JSX.Element {
               </Panel>
 
               <Panel
+                id="team-mods-list"
                 title="团队 Mod"
                 subtitle={mods ? `共 ${mods.total} 份` : '正在整理…'}
                 icon={<PixelIcon name="file" size={18} />}
                 headingLevel={2}
               >
                 {!mods && detailLoading ? <Skeleton lines={3} /> : null}
-                {mods && mods.items.length === 0 ? (
+                {mods && (mods.items?.length ?? 0) === 0 ? (
                   <EmptyState
                     size="sm"
                     title="团队谷仓还是空的"
@@ -511,9 +522,9 @@ export function TeamPage(): JSX.Element {
                     }
                   />
                 ) : null}
-                {mods && mods.items.length > 0 ? (
+                {mods && (mods.items?.length ?? 0) > 0 ? (
                   <div className="team-mod-list">
-                    {mods.items.map((mod) => (
+                    {(mods.items ?? []).map((mod) => (
                       <Link to={`/mods/${mod.id}`} className="team-mod-row" key={mod.id}>
                         <div className="team-mod-row__head">
                           <strong>{mod.title}</strong>
@@ -527,19 +538,15 @@ export function TeamPage(): JSX.Element {
                     ))}
                   </div>
                 ) : null}
-                {mods && totalPages > 1 ? (
-                  <div className="pager-row">
-                    <span className="pager-row__info">
-                      第 {page} / {totalPages} 页
-                    </span>
-                    <Pagination
-                      page={page}
-                      pageCount={totalPages}
-                      onPageChange={setPage}
-                      size="sm"
-                      label="团队 Mod 分页"
-                    />
-                  </div>
+                {mods ? (
+                  <AppPagination
+                    page={page}
+                    pageCount={totalPages}
+                    total={mods.total}
+                    onPageChange={setPage}
+                    label="团队 Mod 分页"
+                    scrollTargetId="team-mods-list"
+                  />
                 ) : null}
               </Panel>
             </>

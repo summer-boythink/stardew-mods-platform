@@ -4,7 +4,6 @@ import {
   Badge,
   Button,
   EmptyState,
-  Pagination,
   Panel,
   PixelIcon,
   PixelSprite,
@@ -15,6 +14,7 @@ import {
 import { Link } from 'react-router-dom';
 import { apiDeleteMod, apiMyMods, apiQuota, apiUpdateMod } from '../api/client';
 import { AuthedImage } from '../components/AuthedImage';
+import { AppPagination } from '../components/AppPagination';
 import { useConfirm } from '../components/Feedback';
 import { DownloadButton } from '../components/DownloadButton';
 import {
@@ -178,6 +178,7 @@ export function MyModsPage(): JSX.Element {
       ) : null}
 
       <Panel
+        id="my-mods-list"
         title="我上传的 Mod"
         subtitle={q ? `搜索「${q}」` : '按上传时间倒序排列'}
         icon={<PixelIcon name="file" size={18} />}
@@ -347,18 +348,15 @@ export function MyModsPage(): JSX.Element {
           </div>
         ) : null}
 
-        {!loading && !error && totalPages > 1 ? (
-          <div className="pager-row">
-            <span className="pager-row__info">
-              第 {page} / {totalPages} 页 · 共 {total} 份
-            </span>
-            <Pagination
-              page={page}
-              pageCount={totalPages}
-              onPageChange={setPage}
-              label="我的 Mod 分页"
-            />
-          </div>
+        {!loading && !error ? (
+          <AppPagination
+            page={page}
+            pageCount={totalPages}
+            total={total}
+            onPageChange={setPage}
+            label="我的 Mod 分页"
+            scrollTargetId="my-mods-list"
+          />
         ) : null}
       </Panel>
     </div>

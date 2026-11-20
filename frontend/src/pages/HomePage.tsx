@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Badge,
   Button,
   EmptyState,
-  Pagination,
   Panel,
   PixelIcon,
   PixelSprite,
@@ -16,6 +15,7 @@ import {
 } from '@pixelvale/ui';
 import { Link } from 'react-router-dom';
 import { apiListPublicMods } from '../api/client';
+import { AppPagination } from '../components/AppPagination';
 import { ModCard } from '../components/ModCard';
 import { MOD_CATEGORIES, type ModRecord } from '../types';
 
@@ -43,7 +43,6 @@ export function HomePage(): JSX.Element {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const resultsRef = useRef<HTMLElement>(null);
 
   const pageSize = 12;
 
@@ -69,17 +68,6 @@ export function HomePage(): JSX.Element {
   }, [q, category, sort, page, reloadKey]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-  const changePage = (next: number): void => {
-    setPage(next);
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    window.requestAnimationFrame(() => {
-      resultsRef.current?.scrollIntoView({
-        behavior: reduced ? 'auto' : 'smooth',
-        block: 'start',
-      });
-    });
-  };
 
   const resetFilters = (): void => {
     setQInput('');
@@ -252,7 +240,7 @@ export function HomePage(): JSX.Element {
         ) : null}
       </Panel>
 
-      <section className="results-section" ref={resultsRef} aria-labelledby="results-title">
+      <section className="results-section" id="mod-results" aria-labelledby="results-title">
         <div className="results-head">
           <h2 id="results-title" className="results-title">
             {loading ? '正在翻找谷仓…' : hasFilters ? '筛选结果' : '最新上架'}
@@ -326,18 +314,15 @@ export function HomePage(): JSX.Element {
           </div>
         ) : null}
 
-        {!loading && !error && totalPages > 1 ? (
-          <div className="pager-row">
-            <span className="pager-row__info">
-              第 {page} / {totalPages} 页 · 共 {total} 份
-            </span>
-            <Pagination
-              page={page}
-              pageCount={totalPages}
-              onPageChange={changePage}
-              label="Mod 广场分页"
-            />
-          </div>
+        {!loading && !error ? (
+          <AppPagination
+            page={page}
+            pageCount={totalPages}
+            total={total}
+            onPageChange={setPage}
+            label="Mod 广场分页"
+            scrollTargetId="mod-results"
+          />
         ) : null}
       </section>
     </div>
