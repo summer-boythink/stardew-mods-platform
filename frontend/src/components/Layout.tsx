@@ -214,7 +214,10 @@ export function Layout({
             <a href="https://summer-boythink.github.io/pixelvale-ui/" target="_blank" rel="noreferrer">
               Pixelvale UI
             </a>{' '}
-            提供 · 原创像素素材，不含游戏资源
+            提供 · 原创像素素材，不含游戏资源 ·{' '}
+            <a href={`${import.meta.env.BASE_URL}FUSION-PIXEL-OFL.txt`} target="_blank" rel="noreferrer">
+              字体 OFL
+            </a>
           </p>
         </div>
       </footer>

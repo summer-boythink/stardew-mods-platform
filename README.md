@@ -53,7 +53,7 @@ stardew-mods-platform/
 
 - 入口在 `frontend/src/App.tsx`：`PixelValeProvider`（`locale="zh-CN"`）+ `ToastProvider` + 确认弹窗宿主
 - 页面使用 `Panel / Button / TextField / Select / Tabs / Checkbox / TagInput / Steps / ProgressBar / Pagination / TreeView / Alert / EmptyState / Skeleton` 等组件
-- 主题通过 `data-pv-theme` 与 CSS 变量切换；像素字体 `Fusion Pixel` 与 `Pixelify Sans` 本地打包，不请求外部字体
+- 主题通过 `data-pv-theme` 与 CSS 变量切换；像素字体 `Fusion Pixel` 与 `Pixelify Sans` 本地打包，不请求外部字体（Fusion Pixel 的 OFL 许可见 `frontend/public/FUSION-PIXEL-OFL.txt`）
 - 上传覆盖、删除、公开、退出团队等操作统一使用像素风 `Dialog`，替代原生 `window.confirm`；成功/失败反馈使用 `Toast`
 - 组件库源码位于 `packages/pixelvale-ui`，与上游 [`pixelvale-ui`](https://github.com/summer-boythink/pixelvale-ui) 的 `packages/ui/src` 同步；更新时复制源码目录并运行 `bun install` 即可，无需发布 npm 包
 - 在线组件演示：<https://summer-boythink.github.io/pixelvale-ui/>
